@@ -1,0 +1,9 @@
+# Entorno virtual y dependencias
+venv/
+__pycache__/
+
+# Base de datos vectorial (Binarios que se regeneran localmente)
+botanico_vectores/
+
+# Variables de entorno
+.env
