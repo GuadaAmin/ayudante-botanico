@@ -1,0 +1,6 @@
+{
+  "name": "SED + RAG - Sistema Experto Botánico",
+  "description": "Sistema Experto Botánico con RAG para monitoreo de jardín, diagnóstico fitosanitario y alertas de riego.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
