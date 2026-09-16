@@ -8,14 +8,22 @@ class CatalogoEspecies(Base):
     __tablename__ = 'catalogo_especies'
     id = Column(Integer, primary_key=True, index=True)
     nombre_cientifico = Column(String(150), nullable=False, unique=True)
+    nombre_comun = Column(String(100), nullable=True)
+    familia = Column(String(100), nullable=True)
     umbral_temp_min = Column(Float, nullable=False)
+    umbral_temp_max = Column(Float, default=40.0)
     req_hidrico_base = Column(Float, nullable=False)
+    exposicion_solar = Column(String(50), default="Pleno Sol")
+    epoca_floracion = Column(String(100), nullable=True)
+    descripcion = Column(Text, nullable=True)
+    imagen_url = Column(String(255), nullable=True)
 
 class PlantasRegistradas(Base):
     __tablename__ = 'plantas_registradas'
     id = Column(Integer, primary_key=True, index=True)
     especie_id = Column(Integer, ForeignKey('catalogo_especies.id'), nullable=False)
     alias = Column(String(100), nullable=False)
+    ubicacion = Column(String(100), default="Cantero Principal")
     indice_riesgo_fitosanitario = Column(Float, default=0.0)
     prioridad_riego_actual = Column(Float, default=0.0)
     especie = relationship("CatalogoEspecies")
