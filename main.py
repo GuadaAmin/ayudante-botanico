@@ -26,7 +26,7 @@ from modelos import (
 )
 from motor_difuso import evaluar_estado_planta
 from orquestador import evaluar_y_persistir
-from rag_pipeline import consultar_asesor
+from rag_pipeline import consultar_asesor, indexar_especie_en_rag
 
 # Carga las variables del archivo .env
 load_dotenv()
@@ -124,6 +124,25 @@ class NuevaPlanta(BaseModel):
     especie_id: int
     alias: str
     ubicacion: Optional[str] = "Cantero Principal"
+
+class EspeciePersonalizadaCreate(BaseModel):
+    nombre_comun: str
+    nombre_cientifico: str
+    familia: Optional[str] = "General"
+    origen: Optional[str] = "Cultivo Regional"
+    descripcion: Optional[str] = ""
+    imagen_url: Optional[str] = ""
+    demanda_hidrica: Optional[str] = "Medio"
+    exposicion_solar: Optional[str] = "Media sombra"
+    epoca_floracion: Optional[str] = "Primavera"
+    sustrato_optimo: Optional[str] = "Suelo fértil y permeable"
+    vulnerabilidad_plagas: Optional[str] = "Pulgones y cochinillas"
+    directrices_sanitarias: Optional[str] = "Evitar anegamiento prolongado."
+    literatura_rag: Optional[str] = None
+    plantar_en_jardin: Optional[bool] = False
+    alias_ejemplar: Optional[str] = None
+    ubicacion_ejemplar: Optional[str] = "Cantero Principal"
+    humedad_inicial: Optional[float] = 45.0
 
 class UserRegister(BaseModel):
     username: str
@@ -240,10 +259,189 @@ def listar_catalogo(db: Session = Depends(get_db)):
             "exposicion_solar": esp.exposicion_solar,
             "epoca_floracion": esp.epoca_floracion,
             "descripcion": esp.descripcion,
-            "imagen_url": esp.imagen_url
+            "imagen_url": esp.imagen_url,
+            "es_personalizada": bool(esp.es_personalizada),
+            "origen": esp.origen,
+            "demanda_hidrica": esp.demanda_hidrica,
+            "vulnerabilidad_plagas": esp.vulnerabilidad_plagas,
+            "directrices_sanitarias": esp.directrices_sanitarias,
+            "literatura_rag": esp.literatura_rag
         }
         for esp in especies
     ]
+
+@app.post("/api/catalogo/especies-personalizadas", tags=["Catálogo Botánico"])
+def crear_especie_personalizada(
+    datos: EspeciePersonalizadaCreate,
+    db: Session = Depends(get_db),
+    token: HTTPAuthorizationCredentials = Depends(security)
+):
+    """
+    Registra una especie fuera de catálogo en SQLite, genera su ficha agronómica
+    y la indexa en ChromaDB para el pipeline RAG. Si se solicita plantar en el jardín,
+    crea el ejemplar registrado y su bitácora inicial.
+    """
+    # 1. Determinar usuario actual (si hay token provisto)
+    current_user = None
+    if token and token.credentials:
+        try:
+            payload = jwt.decode(token.credentials, SECRET_KEY, algorithms=[ALGORITHM])
+            username = payload.get("sub")
+            if username:
+                current_user = db.query(Usuario).filter_by(username=username).first()
+        except jwt.PyJWTError:
+            pass
+
+    # 2. Búsqueda o creación de la especie en el catálogo
+    nombre_cientifico_limpio = datos.nombre_cientifico.strip()
+    nombre_comun_limpio = datos.nombre_comun.strip()
+    
+    especie = db.query(CatalogoEspecies).filter(
+        (CatalogoEspecies.nombre_cientifico.ilike(nombre_cientifico_limpio)) |
+        (CatalogoEspecies.nombre_comun.ilike(nombre_comun_limpio))
+    ).first()
+
+    # Construcción de literatura técnica para el RAG si no vino explícita
+    if datos.literatura_rag and datos.literatura_rag.strip():
+        contenido_rag = datos.literatura_rag.strip()
+    else:
+        contenido_rag = (
+            f"Manual agronómico y fisiológico para {nombre_comun_limpio} ({nombre_cientifico_limpio}), "
+            f"familia {datos.familia or 'General'}. "
+            f"Origen: {datos.origen or 'Cultivo Regional'}. "
+            f"Demanda hídrica: {datos.demanda_hidrica or 'Medio'}. "
+            f"Exposición solar: {datos.exposicion_solar or 'Media sombra'}. "
+            f"Época de floración: {datos.epoca_floracion or 'Primavera'}. "
+            f"Sustrato óptimo: {datos.sustrato_optimo or 'Suelo fértil y permeable'}. "
+            f"Vulnerabilidad a plagas y patógenos: {datos.vulnerabilidad_plagas or 'Pulgones y cochinillas'}. "
+            f"Directrices agronómicas y sanitarias: {datos.directrices_sanitarias or 'Evitar anegamiento prolongado.'} "
+            f"Descripción: {datos.descripcion or ''}"
+        ).strip()
+
+    # Mapeo de demanda hídrica a requerimiento numérico aproximado
+    req_hidrico = 50.0
+    if datos.demanda_hidrica:
+        dh_lower = datos.demanda_hidrica.lower()
+        if "bajo" in dh_lower:
+            req_hidrico = 25.0
+        elif "alto" in dh_lower:
+            req_hidrico = 75.0
+
+    if not especie:
+        especie = CatalogoEspecies(
+            nombre_cientifico=nombre_cientifico_limpio,
+            nombre_comun=nombre_comun_limpio,
+            familia=datos.familia or "General",
+            umbral_temp_min=5.0,
+            umbral_temp_max=40.0,
+            req_hidrico_base=req_hidrico,
+            exposicion_solar=datos.exposicion_solar or "Media sombra",
+            epoca_floracion=datos.epoca_floracion or "Primavera",
+            descripcion=datos.descripcion or f"Especie botánica personalizada: {nombre_comun_limpio}",
+            imagen_url=datos.imagen_url or "https://images.unsplash.com/photo-1546842931-886c185b4c8c?auto=format&fit=crop&w=800&q=80",
+            literatura_rag=contenido_rag,
+            es_personalizada=1,
+            origen=datos.origen or "Cultivo Regional",
+            demanda_hidrica=datos.demanda_hidrica or "Medio",
+            vulnerabilidad_plagas=datos.vulnerabilidad_plagas,
+            directrices_sanitarias=datos.directrices_sanitarias
+        )
+        db.add(especie)
+        db.commit()
+        db.refresh(especie)
+    else:
+        # Actualizar campos existentes y marcar como personalizada
+        especie.literatura_rag = contenido_rag
+        especie.es_personalizada = 1
+        if datos.demanda_hidrica:
+            especie.demanda_hidrica = datos.demanda_hidrica
+        if datos.vulnerabilidad_plagas:
+            especie.vulnerabilidad_plagas = datos.vulnerabilidad_plagas
+        if datos.directrices_sanitarias:
+            especie.directrices_sanitarias = datos.directrices_sanitarias
+        if datos.imagen_url:
+            especie.imagen_url = datos.imagen_url
+        db.commit()
+        db.refresh(especie)
+
+    # 3. Indexar en ChromaDB (Pipeline RAG)
+    rag_resultado = indexar_especie_en_rag(
+        especie_nombre=especie.nombre_comun or especie.nombre_cientifico,
+        contenido_documento=contenido_rag,
+        familia=especie.familia or "General",
+        doc_id=f"doc_custom_cat_{especie.id}"
+    )
+
+    # 4. Si se solicita plantar en el jardín
+    nueva_planta = None
+    if datos.plantar_en_jardin:
+        primer_usuario = db.query(Usuario).first()
+        target_user_id = current_user.id if current_user else (primer_usuario.id if primer_usuario else None)
+        nombre_alias = (datos.alias_ejemplar or f"{especie.nombre_comun} 1").strip()
+        
+        existente = None
+        if target_user_id:
+            existente = db.query(PlantasRegistradas).filter_by(user_id=target_user_id, alias=nombre_alias).first()
+            
+        if not existente:
+            humedad_ini = float(datos.humedad_inicial) if datos.humedad_inicial is not None else 45.0
+            pr_inicial = 70.0 if humedad_ini < 25.0 else 20.0
+            
+            nueva_planta = PlantasRegistradas(
+                user_id=target_user_id,
+                especie_id=especie.id,
+                alias=nombre_alias,
+                ubicacion=datos.ubicacion_ejemplar or "Cantero Principal",
+                prioridad_riego_actual=pr_inicial,
+                indice_riesgo_fitosanitario=15.0
+            )
+            db.add(nueva_planta)
+            db.commit()
+            db.refresh(nueva_planta)
+
+            # Telemetría inicial
+            telemetria_ini = MedicionesAmbientales(
+                planta_id=nueva_planta.id,
+                humedad_sustrato=humedad_ini,
+                temperatura_ambiental=24.0,
+                humedad_relativa=55.0,
+                fecha=datetime.now(timezone.utc)
+            )
+            db.add(telemetria_ini)
+
+            # Bitácora inicial
+            operador_nombre = current_user.username if current_user else "Administrador"
+            bitacora_ini = Bitacora(
+                planta_id=nueva_planta.id,
+                fecha=date.today().isoformat(),
+                tipo="diagnostico",
+                descripcion=f"Alta e incorporación de nueva especie personalizada ({especie.nombre_cientifico}) con indexación RAG.",
+                operador=operador_nombre
+            )
+            db.add(bitacora_ini)
+            db.commit()
+        else:
+            nueva_planta = existente
+
+    return {
+        "status": "ok",
+        "mensaje": f"Especie '{especie.nombre_comun}' guardada e indexada en RAG correctamente.",
+        "especie": {
+            "id": especie.id,
+            "nombre_comun": especie.nombre_comun,
+            "nombre_cientifico": especie.nombre_cientifico,
+            "familia": especie.familia,
+            "es_personalizada": bool(especie.es_personalizada),
+            "imagen_url": especie.imagen_url,
+            "literatura_rag": especie.literatura_rag
+        },
+        "rag": rag_resultado,
+        "planta": {
+            "id": nueva_planta.id,
+            "alias": nueva_planta.alias,
+            "ubicacion": nueva_planta.ubicacion
+        } if nueva_planta else None
+    }
 
 @app.get("/api/plantas", tags=["Inventario y Telemetría"])
 def listar_plantas(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):

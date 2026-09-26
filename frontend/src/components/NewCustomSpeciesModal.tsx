@@ -22,6 +22,7 @@ import {
   formatChromaDBPayload, 
   BOTANICAL_PRESETS 
 } from '../services/customBotanicalStorage';
+import { registrarEspeciePersonalizadaBackend } from '../services/api';
 
 interface NewCustomSpeciesModalProps {
   isOpen: boolean;
@@ -72,6 +73,7 @@ export const NewCustomSpeciesModal: React.FC<NewCustomSpeciesModalProps> = ({
   const [indexInRAG, setIndexInRAG] = useState(true);
   const [showRAGPreview, setShowRAGPreview] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Apply a quick preset
   const applyPreset = (preset: Partial<CatalogSpecies>) => {
@@ -94,13 +96,15 @@ export const NewCustomSpeciesModal: React.FC<NewCustomSpeciesModalProps> = ({
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!commonName.trim() || !scientificName.trim()) {
       alert('Por favor completa al menos el Nombre Común y el Nombre Científico.');
       return;
     }
+
+    setIsSubmitting(true);
 
     const speciesId = `custom-cat-${Date.now()}`;
 
@@ -122,7 +126,7 @@ export const NewCustomSpeciesModal: React.FC<NewCustomSpeciesModalProps> = ({
       phytosanitaryNotes: phytosanitaryNotes.trim() || 'Monitorear humedad y aplicar preventivos orgánicos.'
     };
 
-    // 1. Guardar en Catálogo y generar documento RAG si está marcado
+    // 1. Guardar en Catálogo local y generar documento RAG si está marcado
     const { ragDoc } = saveCustomSpecies(newSpecies, indexInRAG);
 
     // 2. Si se solicitó plantar en el jardín, crear el ejemplar Specimen
@@ -173,6 +177,43 @@ export const NewCustomSpeciesModal: React.FC<NewCustomSpeciesModalProps> = ({
           }
         ]
       };
+    }
+
+    // 3. Persistir en Backend (FastAPI + SQLite + ChromaDB RAG)
+    try {
+      const backendPayload = {
+        nombre_comun: newSpecies.commonName,
+        nombre_cientifico: newSpecies.scientificName,
+        familia: newSpecies.family,
+        origen: newSpecies.origin,
+        descripcion: newSpecies.description,
+        imagen_url: newSpecies.imageUrl,
+        demanda_hidrica: newSpecies.wateringNeed,
+        exposicion_solar: newSpecies.sunlight,
+        epoca_floracion: newSpecies.floweringSeason,
+        sustrato_optimo: newSpecies.optimalSoil,
+        vulnerabilidad_plagas: newSpecies.pestVulnerability,
+        directrices_sanitarias: newSpecies.phytosanitaryNotes,
+        literatura_rag: ragDoc?.content,
+        plantar_en_jardin: alsoPlantInGarden,
+        alias_ejemplar: specimenIdentifier.trim() || `${commonName} 1`,
+        ubicacion_ejemplar: location.trim() || 'Cantero Central',
+        humedad_inicial: initialSoilMoisture
+      };
+
+      const res = await registrarEspeciePersonalizadaBackend(backendPayload);
+      if (res.success && res.data) {
+        if (res.data.especie?.id) {
+          newSpecies.id = String(res.data.especie.id);
+        }
+        if (res.data.planta?.id && newSpecimen) {
+          newSpecimen.id = String(res.data.planta.id);
+        }
+      }
+    } catch (backendError) {
+      console.warn('Backend unavailable, persisted in local botanical storage:', backendError);
+    } finally {
+      setIsSubmitting(false);
     }
 
     onSpeciesAdded(newSpecies, newSpecimen, ragDoc);
@@ -614,7 +655,7 @@ export const NewCustomSpeciesModal: React.FC<NewCustomSpeciesModalProps> = ({
                   <pre className="whitespace-pre-wrap">{chromaPayload.codigo_python_insercion}</pre>
                 </div>
                 <p className="text-[10px] text-[#9db795] italic">
-                   Este texto quedará activo en el frontend inmediatamente y podrás agregarlo a <code>rag_pipeline.py</code> en el backend cuando desees.
+                   Esta especie se persiste en SQLite (<code>catalogo_especies</code>) y se vectoriza automáticamente en ChromaDB para el Asesor RAG.
                 </p>
               </div>
             )}
@@ -625,16 +666,18 @@ export const NewCustomSpeciesModal: React.FC<NewCustomSpeciesModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 bg-[#f0f4ec] hover:bg-[#e4ebd9] text-[#485e40] py-2.5 rounded-xl font-semibold text-[13px] transition-colors cursor-pointer"
+              disabled={isSubmitting}
+              className="flex-1 bg-[#f0f4ec] hover:bg-[#e4ebd9] text-[#485e40] py-2.5 rounded-xl font-semibold text-[13px] transition-colors cursor-pointer disabled:opacity-50"
             >
               Cancelar
             </button>
             <button
               type="submit"
-              className="flex-1 bg-[#526b4a] hover:bg-[#43573c] text-white py-2.5 rounded-xl font-bold text-[13px] flex items-center justify-center gap-1.5 shadow-xs transition-all active:scale-98 cursor-pointer"
+              disabled={isSubmitting}
+              className="flex-1 bg-[#526b4a] hover:bg-[#43573c] text-white py-2.5 rounded-xl font-bold text-[13px] flex items-center justify-center gap-1.5 shadow-xs transition-all active:scale-98 cursor-pointer disabled:opacity-50"
             >
               <Check className="w-4 h-4 stroke-[2.5]" />
-              <span>Guardar Especie {alsoPlantInGarden ? 'y Plantar' : ''}</span>
+              <span>{isSubmitting ? 'Guardando en BD y RAG...' : `Guardar Especie ${alsoPlantInGarden ? 'y Plantar' : ''}`}</span>
             </button>
           </div>
         </form>

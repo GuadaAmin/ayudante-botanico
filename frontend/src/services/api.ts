@@ -171,10 +171,11 @@ export async function evaluarSED(telemetria: TelemetriaInput): Promise<Evaluacio
  * Invoca el Pipeline RAG en el backend: POST /api/asesor
  */
 export async function consultarAsesorRAG(consulta: ConsultaInput): Promise<AsesorResponse> {
-  // Sincronización de contratos: Mapeamos 'mensaje' a 'pregunta' requerido por Pydantic en FastAPI
   const payload = {
     planta_id: consulta.planta_id,
-    pregunta: consulta.mensaje, 
+    pregunta: consulta.mensaje,
+    prioridad_riego: consulta.prioridad_riego ?? 0.0,
+    riesgo_fitosanitario: consulta.riesgo_fitosanitario ?? 0.0,
   };
 
   try {
@@ -324,4 +325,56 @@ ${literatureText}
 
 Instrucción:
 Responde a la consulta del usuario fundamentando tu consejo estrictamente en la literatura botánica recuperada, pero adaptando la urgencia según el contexto transaccional del SED.`;
+}
+
+export interface EspeciePersonalizadaPayload {
+  nombre_comun: string;
+  nombre_cientifico: string;
+  familia?: string;
+  origen?: string;
+  descripcion?: string;
+  imagen_url?: string;
+  demanda_hidrica?: 'Bajo' | 'Medio' | 'Alto' | string;
+  exposicion_solar?: string;
+  epoca_floracion?: string;
+  sustrato_optimo?: string;
+  vulnerabilidad_plagas?: string;
+  directrices_sanitarias?: string;
+  literatura_rag?: string;
+  plantar_en_jardin?: boolean;
+  alias_ejemplar?: string;
+  ubicacion_ejemplar?: string;
+  humedad_inicial?: number;
+}
+
+/**
+ * Persiste una nueva especie fuera del catálogo en la base de datos (SQLite)
+ * e indexa su vector de embeddings en ChromaDB a través de FastAPI.
+ */
+export async function registrarEspeciePersonalizadaBackend(
+  payload: EspeciePersonalizadaPayload
+): Promise<{ success: boolean; data?: any; error?: string }> {
+  try {
+    const token = localStorage.getItem('token_autenticacion');
+    const response = await fetch(`${API_URL}/api/catalogo/especies-personalizadas`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(15000),
+    });
+
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}));
+      throw new Error(errData.detail || `Error ${response.status}: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    return { success: true, data };
+  } catch (error: any) {
+    console.warn('Error al registrar especie personalizada en el backend:', error);
+    return { success: false, error: error.message || 'Error de conexión con el backend' };
+  }
 }

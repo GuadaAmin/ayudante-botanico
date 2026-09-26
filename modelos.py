@@ -17,6 +17,12 @@ class CatalogoEspecies(Base):
     epoca_floracion = Column(String(100), nullable=True)
     descripcion = Column(Text, nullable=True)
     imagen_url = Column(String(255), nullable=True)
+    literatura_rag = Column(Text, nullable=True)
+    es_personalizada = Column(Integer, default=0)
+    origen = Column(String(100), default="Regional")
+    demanda_hidrica = Column(String(50), default="Medio")
+    vulnerabilidad_plagas = Column(Text, nullable=True)
+    directrices_sanitarias = Column(Text, nullable=True)
 
 class Usuario(Base):
     __tablename__ = 'usuarios'

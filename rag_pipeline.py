@@ -1,25 +1,25 @@
 import chromadb
 from chromadb.utils import embedding_functions
+from datetime import datetime, timezone
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from modelos import PlantasRegistradas
+from modelos import PlantasRegistradas, CatalogoEspecies
 
 # 1. Configuración de ChromaDB con soporte multilingüe
 funcion_embedding = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="paraphrase-multilingual-MiniLM-L12-v2")
 chroma_client = chromadb.PersistentClient(path="./botanico_vectores")
 
-# Purgar colección anterior si existe para evitar conflictos de dimensión vectorial
-try:
-    chroma_client.delete_collection(name="manuales_botanicos")
-except Exception:
-    pass
+# # Purgar colección anterior si existe para evitar conflictos de dimensión vectorial
+# try:
+#     chroma_client.delete_collection(name="manuales_botanicos")
+# except Exception:
+#     pass
 
 coleccion = chroma_client.get_or_create_collection(
     name="manuales_botanicos",
     embedding_function=funcion_embedding,
     metadata={"hnsw:space": "cosine"} # Corrección técnica: Similitud del coseno
 )
-
 # 2. Vectorización de la Base de Conocimiento Especializada (Flora Regional y Fitosanidad)
 documentos = [
     # Especies Regionales y Requerimientos Edáficos
@@ -86,8 +86,54 @@ ids = [
 
 coleccion.upsert(documents=documentos, metadatas=metadatas, ids=ids)
 
+def indexar_especie_en_rag(
+    especie_nombre: str,
+    contenido_documento: str,
+    familia: str = "General",
+    doc_id: str = None
+) -> dict:
+    """Indexa literatura técnica de una especie botánica en la colección vectorial de ChromaDB."""
+    if not doc_id:
+        doc_id = f"doc_custom_{especie_nombre.lower().replace(' ', '_')}_{int(datetime.now(timezone.utc).timestamp())}"
+    
+    coleccion.upsert(
+        documents=[contenido_documento],
+        metadatas=[{
+            "especie": especie_nombre,
+            "categoria": "especie_personalizada",
+            "familia": familia
+        }],
+        ids=[doc_id]
+    )
+    print(f"✅ [ChromaDB] Literatura RAG indexada para '{especie_nombre}' (ID: {doc_id})")
+    return {"doc_id": doc_id, "especie": especie_nombre, "status": "indexado"}
+
+def sincronizar_especies_personalizadas_en_chroma():
+    """Garantiza que todas las especies personalizadas en SQLite tengan sus tensores en ChromaDB."""
+    try:
+        engine = create_engine("sqlite:///botanico.db", connect_args={"check_same_thread": False})
+        Session = sessionmaker(bind=engine)
+        session = Session()
+        especies_cust = session.query(CatalogoEspecies).filter(
+            (CatalogoEspecies.es_personalizada == 1) | (CatalogoEspecies.literatura_rag != None)
+        ).all()
+        for esp in especies_cust:
+            if esp.literatura_rag:
+                indexar_especie_en_rag(
+                    especie_nombre=esp.nombre_comun or esp.nombre_cientifico,
+                    contenido_documento=esp.literatura_rag,
+                    familia=esp.familia or "General",
+                    doc_id=f"doc_custom_cat_{esp.id}"
+                )
+        session.close()
+    except Exception as e:
+        print(f"Nota sincronización RAG inicial: {e}")
+
+# Sincronizar especies personalizadas existentes
+sincronizar_especies_personalizadas_en_chroma()
+
 def normalizar_clave_especie(texto: str) -> str:
-    """Extrae la clave canónica de especie para filtrado en ChromaDB."""
+    """Extrae la clave canónica de especie para filtrado en ChromaDB (base y personalizadas)."""
     t = (texto or "").lower()
     if "lapacho" in t or "handroanthus" in t: return "Lapacho"
     if "jacarand" in t: return "Jacaranda"
@@ -98,6 +144,32 @@ def normalizar_clave_especie(texto: str) -> str:
     if "hibisc" in t or "rosa de china" in t: return "Hibisco"
     if "tipa" in t or "tipuana" in t: return "Tipa"
     if "azalea" in t or "rhododendron" in t: return "Azalea"
+
+    # Búsqueda dinámica de especies personalizadas en la base de datos
+    try:
+        engine = create_engine("sqlite:///botanico.db", connect_args={"check_same_thread": False})
+        Session = sessionmaker(bind=engine)
+        session = Session()
+        especies = session.query(CatalogoEspecies).all()
+        stop_words = {"planta", "especie", "para", "como", "arbol", "flor", "hoja", "cultivo", "riego", "jardin"}
+        for esp in especies:
+            comun = (esp.nombre_comun or "").lower()
+            cientifico = (esp.nombre_cientifico or "").lower()
+            # Coincidencia directa completa o substring
+            if (comun and (comun in t or t in comun)) or (cientifico and (cientifico in t or t in cientifico)):
+                res = esp.nombre_comun or esp.nombre_cientifico
+                session.close()
+                return res
+            # Coincidencia por palabra clave significativa
+            palabras = [w for w in (comun + " " + cientifico).split() if len(w) >= 4 and w not in stop_words]
+            if any(palabra in t for palabra in palabras):
+                res = esp.nombre_comun or esp.nombre_cientifico
+                session.close()
+                return res
+        session.close()
+    except Exception:
+        pass
+
     return "General"
 
 def generar_sintesis_experta(
@@ -179,10 +251,12 @@ def consultar_asesor(planta_id: int, consulta_usuario: str, prioridad_riego: flo
     session.close()
 
     # 2. Búsqueda semántica con FILTRADO ESTRICTO DE ESPECIE en ChromaDB
-    clave_esp = normalizar_clave_especie(f"{especie_nombre} {nombre_planta}")
+    clave_esp = normalizar_clave_especie(consulta_usuario)
+    if clave_esp == "General":
+        clave_esp = normalizar_clave_especie(f"{especie_nombre} {nombre_planta}")
     
     query_args = {
-        "query_texts": [f"{consulta_usuario} {especie_nombre}"],
+        "query_texts": [f"{consulta_usuario} {especie_nombre if clave_esp == 'General' else clave_esp}"],
         "n_results": 3
     }
     
