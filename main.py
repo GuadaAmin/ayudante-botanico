@@ -7,6 +7,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from sqlalchemy import create_engine, desc
 from sqlalchemy.orm import sessionmaker, Session
+from datetime import date
 import bcrypt
 import jwt
 import os
@@ -20,7 +21,8 @@ from modelos import (
     BitacoraEventos,
     TareasPendientes,
     AlertasMeteorologicas,
-    Usuario
+    Usuario,
+    Bitacora
 )
 from motor_difuso import evaluar_estado_planta
 from orquestador import evaluar_y_persistir
@@ -262,13 +264,23 @@ def listar_plantas(db: Session = Depends(get_db), current_user: Usuario = Depend
                 "nombre_cientifico": p.especie.nombre_cientifico if p.especie else "",
                 "imagen_url": p.especie.imagen_url if p.especie else None,
                 "familia": p.especie.familia if p.especie else "Familia desconocida"
-            },
+            } if p.especie else None,
             "ultima_telemetria": {
                 "humedad_sustrato": ultima_med.humedad_sustrato if ultima_med else 45.0,
                 "temperatura_ambiental": ultima_med.temperatura_ambiental if ultima_med else 24.0,
                 "humedad_relativa": ultima_med.humedad_relativa if ultima_med else 50.0,
                 "fecha": ultima_med.fecha.isoformat() if ultima_med else None
-            }
+            },
+            # Mapeo dinámico del historial real
+            "historial": [
+                {
+                    "id": f"h-{h.id}",
+                    "date": h.fecha,
+                    "type": h.tipo,
+                    "description": h.descripcion,
+                    "operator": h.operador
+                } for h in p.historial
+            ]
         })
     return resultado
 
@@ -324,6 +336,7 @@ class PlantaCreate(BaseModel):
     nombre_comun: str
     imagen_url: str
     familia: str
+    notas_iniciales: str = ""
 
 # 2. Endpoint POST modificado (Unicidad e Imagen)
 @app.post("/api/plantas", tags=["Plantas"])
@@ -373,6 +386,20 @@ def registrar_nueva_planta(datos: PlantaCreate, db: Session = Depends(get_db), t
         indice_riesgo_fitosanitario=0.0
     )
     db.add(nueva_planta)
+    db.commit()
+
+    db.refresh(nueva_planta)
+    
+    # Crear la primera entrada de la bitácora
+    texto_nota = datos.notas_iniciales.strip() if datos.notas_iniciales.strip() else "Plantación y alta en el SED."
+    entrada_bitacora = Bitacora(
+        planta_id=nueva_planta.id,
+        fecha=date.today().isoformat(),
+        tipo="diagnostico",
+        descripcion=texto_nota,
+        operador=username # Asignar el nombre del usuario logueado
+    )
+    db.add(entrada_bitacora)
     db.commit()
     
     return {"status": "ok", "planta_id": nueva_planta.id}

@@ -62,14 +62,14 @@ export default function App() {
         family: p.especie?.familia || 'Desconocida',
         location: p.ubicacion || 'Cantero Principal',
         soilMoisture: p.ultima_telemetria?.humedad_sustrato ?? 45,
-        ambientTemp: p.ultima_telemetria?.temperatura_ambiental ?? 24,
+        temperature: p.ultima_telemetria?.temperatura_ambiental ?? 24,
         humidity: p.ultima_telemetria?.humedad_relativa ?? 50,
         irrigationPriority: p.prioridad_riego_actual ?? 0,
         phytosanitaryRisk: p.indice_riesgo_fitosanitario ?? 0,
         status: p.prioridad_riego_actual > 65 ? 'critical' : p.indice_riesgo_fitosanitario > 75 ? 'attention' : 'stable',
         lastWatered: 'Hace un tiempo',
         imageUrl: p.especie?.imagen_url || 'https://images.unsplash.com/photo-1512428559087-560fa5ceab42?auto=format&fit=crop&q=80&w=600',
-        history: [],
+        history: p.historial || [],
         activeAlert: null
       }));
       setSpecimens(backendPlantas);
@@ -283,7 +283,8 @@ export default function App() {
         nombre_cientifico: newSpecimen.scientificName,
         nombre_comun: newSpecimen.commonName,
         imagen_url: newSpecimen.imageUrl, // Inyección de la URL de la imagen al backend
-        familia: newSpecimen.family
+        familia: newSpecimen.family,
+        notas_iniciales: newSpecimen.notes || ''
       });
       fetchUserPlantas(); 
       showToast(`🌱 ¡${newSpecimen.name} incorporado exitosamente!`);

@@ -27,6 +27,18 @@ class Usuario(Base):
     
     plantas = relationship("PlantasRegistradas", back_populates="propietario")
 
+class Bitacora(Base):
+    __tablename__ = "bitacora"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    planta_id = Column(Integer, ForeignKey("plantas_registradas.id", ondelete="CASCADE"))
+    fecha = Column(String)
+    tipo = Column(String)
+    descripcion = Column(String)
+    operador = Column(String)
+
+    planta = relationship("PlantasRegistradas", back_populates="historial")
+
 class PlantasRegistradas(Base):
     __tablename__ = "plantas_registradas"
 
@@ -41,6 +53,7 @@ class PlantasRegistradas(Base):
     
     propietario = relationship("Usuario", back_populates="plantas")
     especie = relationship("CatalogoEspecies")
+    historial = relationship("Bitacora", back_populates="planta", cascade="all, delete-orphan")
 
 class BitacoraEventos(Base):
     __tablename__ = 'bitacora_eventos'
