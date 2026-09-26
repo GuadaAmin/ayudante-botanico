@@ -39,6 +39,26 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
 
   return (
     <div className="space-y-4 pb-4">
+      {specimens.length === 0 && (
+        <div className="bg-white rounded-3xl p-8 text-center border border-[#dce7d5] space-y-3 my-4">
+          <div className="w-12 h-12 bg-[#e2f3df] text-[#3b5731] rounded-2xl mx-auto flex items-center justify-center">
+            <Sparkles className="w-6 h-6" />
+          </div>
+          <h3 className="font-botanical text-[20px] font-bold text-[#22371c]">
+            Tu jardín botánico está vacío
+          </h3>
+          <p className="text-[13px] text-[#556c4e] max-w-md mx-auto">
+            Comienza a registrar tus propios ejemplares para que el Sistema Experto Difuso (SED) evalúe su telemetría y te asista con el recomendador RAG.
+          </p>
+          <button
+            onClick={onOpenNewSpecimen}
+            className="bg-[#526b4a] hover:bg-[#43573c] text-white py-2.5 px-5 rounded-2xl font-bold text-[13px] inline-flex items-center gap-2 shadow-xs transition-all cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Registrar mi primer ejemplar</span>
+          </button>
+        </div>
+      )}
       {/* SEMÁFORO GENERAL HERO BANNER WITH BOTANICAL GARDEN BACKGROUND */}
       <div 
         id="semaforo-general-card"

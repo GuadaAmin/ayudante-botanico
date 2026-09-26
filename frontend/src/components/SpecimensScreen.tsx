@@ -57,6 +57,20 @@ export const SpecimensScreen: React.FC<SpecimensScreenProps> = ({
 
   return (
     <div className="space-y-4 pb-4">
+      {filteredSpecimens.length === 0 && (
+      <div className="bg-white rounded-3xl p-8 text-center border border-[#dce7d5] space-y-3">
+        <p className="text-[14px] font-medium text-[#5f7457]">
+          No hay ejemplares registrados en tu jardín todavía.
+        </p>
+        <button
+          onClick={onOpenNewSpecimen}
+          className="bg-[#526b4a] hover:bg-[#43573c] text-white py-2 px-4 rounded-xl font-bold text-[12.5px] inline-flex items-center gap-1.5 shadow-xs transition-all cursor-pointer"
+        >
+          <Plus className="w-4 h-4" />
+          <span>Plantar primer ejemplar</span>
+        </button>
+      </div>
+      )}
       {/* Top bar with search and register button */}
       <div className="flex items-center gap-2">
         <div className="relative flex-1">

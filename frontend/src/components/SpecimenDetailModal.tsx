@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   X, 
+  Trash2,
   Droplets, 
   Sparkles, 
   MapPin, 
@@ -24,6 +25,7 @@ interface SpecimenDetailModalProps {
   onClose: () => void;
   onWaterSpecimen: (specimenId: string) => void;
   onSpecimenEvaluated: (specimenId: string, result: { prioridad_riego: number; riesgo_fitosanitario: number }) => void;
+  onDeleteSpecimen?: (specimenId: string) => void;
 }
 
 interface ChatMsg {
@@ -36,7 +38,8 @@ export const SpecimenDetailModal: React.FC<SpecimenDetailModalProps> = ({
   specimen,
   onClose,
   onWaterSpecimen,
-  onSpecimenEvaluated
+  onSpecimenEvaluated,
+  onDeleteSpecimen
 }) => {
   if (!specimen) return null;
 
@@ -183,6 +186,29 @@ export const SpecimenDetailModal: React.FC<SpecimenDetailModalProps> = ({
             className="w-full h-full object-cover"
           />
           <div className="absolute inset-0 bg-linear-to-t from-black/80 via-black/30 to-transparent" />
+
+          {/* Action buttons top right */}
+          <div className="absolute top-3 right-3 flex items-center gap-2">
+            {onDeleteSpecimen && (
+              <button
+                onClick={() => {
+                  if (window.confirm(`¿Estás seguro de que deseas eliminar permanentemente a ${specimen.name}?`)) {
+                    onDeleteSpecimen(specimen.id);
+                  }
+                }}
+                className="p-1.5 bg-black/40 hover:bg-[#dc2626]/80 text-white rounded-full transition-colors cursor-pointer"
+                title="Eliminar ejemplar"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="p-1.5 bg-black/40 hover:bg-black/60 text-white rounded-full transition-colors cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
 
           {/* Close button */}
           <button

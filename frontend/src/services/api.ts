@@ -5,6 +5,35 @@
  * - POST /api/asesor -> Inyección de contexto RAG (ChromaDB + SQLite)
  */
 
+import axios from 'axios';
+
+// Configuración de URL: Usa la variable de entorno de Vite o apunta por defecto al backend local/producción
+const API_URL = ((import.meta as any).env?.VITE_API_URL as string) || 'http://localhost:8000';
+
+/**
+ * Instancia centralizada de Axios para la comunicación con FastAPI.
+ */
+export const apiClient = axios.create({
+  baseURL: API_URL,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
+
+/**
+ * Interceptor de Autenticación: Añade automáticamente el token JWT a cada petición 
+ * si el usuario ha iniciado sesión (Multi-tenancy / Aislamiento por usuario).
+ */
+apiClient.interceptors.request.use((config) => {
+  const token = localStorage.getItem('token_autenticacion');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+}, (error) => {
+  return Promise.reject(error);
+});
+
 export interface TelemetriaInput {
   planta_id: number;
   humedad_sustrato: number;
@@ -25,7 +54,7 @@ export interface EvaluacionResponse {
 
 export interface ConsultaInput {
   planta_id: number;
-  mensaje: string;
+  mensaje: string; // Adaptado a 'pregunta' para cumplir con el esquema Pydantic del backend
   prioridad_riego?: number;
   riesgo_fitosanitario?: number;
 }
@@ -43,9 +72,6 @@ export interface AsesorResponse {
   };
 }
 
-// Configuración de URLs: Permite usar variable de entorno VITE_API_URL o usar el proxy de Vite '/api'
-const API_URL = ((import.meta as any).env?.VITE_API_URL as string) || '';
-
 /**
  * Parsea el ID del ejemplar al número entero esperado por la base de datos y la API
  */
@@ -61,17 +87,20 @@ export function extractPlantaId(specimenId: string | number): number {
  */
 export async function checkBackendHealth(): Promise<{ online: boolean; message: string }> {
   try {
-    // Verificamos conectividad probando /openapi.json que FastAPI expone de forma nativa
+    const token = localStorage.getItem('token_autenticacion');
     const res = await fetch(`${API_URL}/openapi.json`, {
       method: 'GET',
-      headers: { 'Accept': 'application/json' },
+      headers: { 
+        'Accept': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      },
       signal: AbortSignal.timeout(3000),
     });
 
     if (res.ok) {
       return {
         online: true,
-        message: 'Backend FastAPI conectado correctamente (puerto 8000).'
+        message: `Backend FastAPI conectado correctamente en ${API_URL}.`
       };
     }
     return {
@@ -81,7 +110,7 @@ export async function checkBackendHealth(): Promise<{ online: boolean; message: 
   } catch (error) {
     return {
       online: false,
-      message: 'No se pudo conectar con el servidor backend (FastAPI no detectado en http://127.0.0.1:8000).'
+      message: `No se pudo conectar con el servidor backend en ${API_URL}.`
     };
   }
 }
@@ -98,10 +127,12 @@ export async function evaluarSED(telemetria: TelemetriaInput): Promise<Evaluacio
   };
 
   try {
+    const token = localStorage.getItem('token_autenticacion');
     const response = await fetch(`${API_URL}/api/evaluar`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
       },
       body: JSON.stringify(payload),
       signal: AbortSignal.timeout(8000),
@@ -122,7 +153,6 @@ export async function evaluarSED(telemetria: TelemetriaInput): Promise<Evaluacio
     };
   } catch (error) {
     console.warn('Fallo en conexión con el backend para /api/evaluar. Usando fallback local:', error);
-    // Fallback matemático aproximado si el backend no está disponible
     const fallbackDiagnostico = calcularFallbackSED(
       payload.humedad_sustrato,
       payload.temperatura_ambiental,
@@ -140,18 +170,19 @@ export async function evaluarSED(telemetria: TelemetriaInput): Promise<Evaluacio
  * Invoca el Pipeline RAG en el backend: POST /api/asesor
  */
 export async function consultarAsesorRAG(consulta: ConsultaInput): Promise<AsesorResponse> {
+  // Sincronización de contratos: Mapeamos 'mensaje' a 'pregunta' requerido por Pydantic en FastAPI
   const payload = {
     planta_id: consulta.planta_id,
-    mensaje: consulta.mensaje,
-    prioridad_riego: consulta.prioridad_riego ?? 0.0,
-    riesgo_fitosanitario: consulta.riesgo_fitosanitario ?? 0.0,
+    pregunta: consulta.mensaje, 
   };
 
   try {
+    const token = localStorage.getItem('token_autenticacion');
     const response = await fetch(`${API_URL}/api/asesor`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
       },
       body: JSON.stringify(payload),
       signal: AbortSignal.timeout(12000),

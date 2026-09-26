@@ -18,14 +18,28 @@ class CatalogoEspecies(Base):
     descripcion = Column(Text, nullable=True)
     imagen_url = Column(String(255), nullable=True)
 
-class PlantasRegistradas(Base):
-    __tablename__ = 'plantas_registradas'
+class Usuario(Base):
+    __tablename__ = 'usuarios'
+    
     id = Column(Integer, primary_key=True, index=True)
-    especie_id = Column(Integer, ForeignKey('catalogo_especies.id'), nullable=False)
-    alias = Column(String(100), nullable=False)
-    ubicacion = Column(String(100), default="Cantero Principal")
-    indice_riesgo_fitosanitario = Column(Float, default=0.0)
+    username = Column(String, unique=True, index=True, nullable=False)
+    hashed_password = Column(String, nullable=False)
+    
+    plantas = relationship("PlantasRegistradas", back_populates="propietario")
+
+class PlantasRegistradas(Base):
+    __tablename__ = "plantas_registradas"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("usuarios.id"))
+    especie_id = Column(Integer, ForeignKey("catalogo_especies.id"))
+    alias = Column(String, index=True)
+    ubicacion = Column(String, default="Cantero Principal") 
+    
     prioridad_riego_actual = Column(Float, default=0.0)
+    indice_riesgo_fitosanitario = Column(Float, default=0.0)
+    
+    propietario = relationship("Usuario", back_populates="plantas")
     especie = relationship("CatalogoEspecies")
 
 class BitacoraEventos(Base):

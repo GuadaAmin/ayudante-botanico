@@ -24,18 +24,16 @@ export const NewSpecimenModal: React.FC<NewSpecimenModalProps> = ({
   const selectedSpecies =
     CATALOG_SPECIES.find((s) => s.id === selectedSpeciesId) || CATALOG_SPECIES[0];
 
-  const [customName, setCustomName] = useState(
-    `${selectedSpecies.commonName} ${Math.floor(Math.random() * 5) + 3}`
-  );
-  const [location, setLocation] = useState('Sector Norte - Vereda Arbolada');
+  const [customName, setCustomName] = useState(`${selectedSpecies.commonName}`);
+  const [location, setLocation] = useState('');
   const [soilMoisture, setSoilMoisture] = useState<number>(45);
-  const [notes, setNotes] = useState('Ejemplar joven trasplantado recientemente con tutor.');
+  const [notes, setNotes] = useState('');
 
   const handleSpeciesChange = (speciesId: string) => {
     setSelectedSpeciesId(speciesId);
     const sp = CATALOG_SPECIES.find((s) => s.id === speciesId);
     if (sp) {
-      setCustomName(`${sp.commonName} ${Math.floor(Math.random() * 5) + 3}`);
+      setCustomName(`${sp.commonName}`);
     }
   };
 
@@ -52,7 +50,7 @@ export const NewSpecimenModal: React.FC<NewSpecimenModalProps> = ({
       commonName: selectedSpecies.commonName,
       family: selectedSpecies.family,
       status: initialStatus,
-      location,
+      location: location.trim(), 
       plantedDate: new Date().toISOString().split('T')[0],
       irrigationPriority: isDry ? 68.0 : 20.0,
       phytosanitaryRisk: 15.0,
@@ -61,7 +59,7 @@ export const NewSpecimenModal: React.FC<NewSpecimenModalProps> = ({
       humidity: 55.0,
       lastWatered: 'Hoy al plantar',
       imageUrl: selectedSpecies.imageUrl,
-      notes,
+      notes: notes.trim(),
       activeAlert: isDry
         ? {
             id: `alt-${Date.now()}`,
@@ -174,10 +172,10 @@ export const NewSpecimenModal: React.FC<NewSpecimenModalProps> = ({
               <input
                 id="new-specimen-location-input"
                 type="text"
-                required
+                // Se elimina la propiedad 'required'
                 value={location}
                 onChange={(e) => setLocation(e.target.value)}
-                placeholder="Ej: Cantero Central, Pérgola Oeste"
+                placeholder="Ej: Sector Norte - Vereda Arbolada"
                 className="w-full bg-white pl-9 pr-3 py-2 text-[13px] rounded-xl border border-[#cad7c1] focus:outline-none focus:border-[#526b4a] text-[#22331d]"
               />
             </div>
@@ -211,7 +209,7 @@ export const NewSpecimenModal: React.FC<NewSpecimenModalProps> = ({
               rows={2}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="Estado vegetativo, procedencia del vivero, etc."
+              placeholder="Ej: Ejemplar joven trasplantado recientemente con tutor."
               className="w-full bg-white text-[#22331d] text-[12px] p-2.5 rounded-xl border border-[#cad7c1] focus:outline-none focus:border-[#526b4a]"
             />
           </div>

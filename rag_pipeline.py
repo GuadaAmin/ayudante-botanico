@@ -109,52 +109,43 @@ def generar_sintesis_experta(
     literatura: list
 ) -> str:
     """
-    Motor de Razonamiento Agronómico: Sintetiza una respuesta inteligente,
-    coherente y redactada en lenguaje natural cruzando la intención de la pregunta
-    con los sensores del SED y la literatura de ChromaDB para esa especie.
+    Motor de Razonamiento Agronómico Avanzado: Prioriza la especificidad de la pregunta,
+    maneja saludos, filtra temas ajenos y sintetiza la literatura vectorial de ChromaDB.
     """
-    q = (consulta or "").lower()
+    q = (consulta or "").lower().strip()
+
+    # 1. Manejo de Saludos
+    saludos = ["hola", "hola!", "hola,", "buen dia", "buenos dias", "buenas tardes", "buenas noches", "hey", "saludos"]
+    if q in saludos or any(q.startswith(s) for s in ["hola ", "buen dia ", "buenas "]):
+        return f"¡Hola! Soy tu asistente botánico experto. Actualmente estoy analizando tu **{especie_nombre}** ('*{nombre_planta}*'). ¿En qué puedo ayudarte con su cuidado, riego o sanidad hoy?"
+
+    # 2. Detección de Fuera de Ámbito (Ej: Autos, tecnología general, cocina, etc.)
+    fuera_ambito = ["auto", "coche", "aceite", "motor", "programacion", "python", "receta", "futbol", "película"]
+    if any(palabra in q for palabra in fuera_ambito):
+        return f"⚠️ Lo que mencionas está fuera de mi área de especialización. Como sistema experto botánico, solo puedo asesorarte sobre el cuidado, plagas, riego y fisiología de tus plantas (especialmente sobre tu **{especie_nombre}**)."
+
+    # 3. Extracción de intenciones específicas de la pregunta
     es_riego = any(w in q for w in ["riego", "regar", "agua", "sed", "seco", "sequia", "humedad", "déficit", "deficit"])
     es_plaga = any(w in q for w in ["plaga", "bicho", "arañuela", "aranuela", "cochinilla", "pulgón", "pulgon", "mosca", "hongo", "manchas", "enfermedad", "oidio", "roya"])
-    es_amarillo = any(w in q for w in ["amarill", "clorosis", "hojas secas", "caen", "caída"])
-    es_flor = any(w in q for w in ["flor", "florecer", "floracion", "floración", "pimpollos", "yemas"])
     es_poda = any(w in q for w in ["poda", "podar", "cortar", "ramas"])
 
-    # 1. Diagnóstico del estado telemétrico según el SED
-    estado_sed_diag = []
-    if prioridad_riego > 65.0:
-        estado_sed_diag.append(f"Actualmente tu **{especie_nombre}** ('*{nombre_planta}*') presenta una **Prioridad de Riego Crítica ({prioridad_riego}%)**, lo que indica que el contenido hídrico del sustrato está por debajo del umbral de seguridad.")
-    elif prioridad_riego > 40.0:
-        estado_sed_diag.append(f"Tu **{especie_nombre}** ('*{nombre_planta}*') se encuentra con una **Prioridad de Riego Moderada ({prioridad_riego}%)**, requiriendo seguimiento del sustrato.")
-    else:
-        estado_sed_diag.append(f"El balance hídrico de tu **{especie_nombre}** ('*{nombre_planta}*') es **Óptimo ({prioridad_riego}%)**.")
+    # 4. Construcción de respuesta basada estrictamente en la literatura recuperada
+    contexto_literario = ""
+    if literatura and len(literatura) > 0:
+        # Tomamos los fragmentos más relevantes devueltos por ChromaDB
+        contexto_literario = "\n".join([f"- {doc}" for doc in literatura[:2]])
 
-    if riesgo_fitosanitario > 75.0:
-        estado_sed_diag.append(f"⚠️ Se detecta un **Riesgo Fitosanitario Elevado ({riesgo_fitosanitario}%)**, propiciado por alta humedad ambiental y temperaturas templado-cálidas.")
+    # Construcción de la respuesta específica según la consulta
+    respuesta_base = f"Consultando los manuales botánicos para **{especie_nombre}** ('*{nombre_planta}*'):\n\n{contexto_literario}"
 
-    diag_intro = " ".join(estado_sed_diag)
+    # Añadir contexto del SED solo si la pregunta está relacionada con riego o estado general
+    alerta_sed = ""
+    if es_riego and prioridad_riego > 65.0:
+        alerta_sed = f"\n\n💧 *Nota del Sistema Experto (SED):* Este ejemplar presenta una **Prioridad de Riego Crítica ({prioridad_riego}%)**, por lo que se aconseja actuar con urgencia."
+    elif es_plaga and riesgo_fitosanitario > 65.0:
+        alerta_sed = f"\n\n🛡️ *Nota del Sistema Experto (SED):* Se detecta un **Riesgo Fitosanitario Elevado ({riesgo_fitosanitario}%)** en el entorno."
 
-    # 2. Respuesta directa fundamentada en la literatura de la especie
-    cuerpo_respuesta = ""
-    if literatura:
-        cuerpo_respuesta = f"De acuerdo con los manuales agronómicos especializados para **{especie_nombre}**:\n\n> *\"{literatura[0]}\"*"
-
-    # 3. Plan de acción específico
-    accion = ""
-    if es_riego or prioridad_riego > 65.0:
-        accion = f"💧 **Plan de Acción Sugerido:** Aplica un riego profundo de recuperación en la zona de goteo de la copa (evitando encharcar la base del tronco). Se recomienda realizarlo al atardecer para favorecer la absorción capilar sin pérdidas por evaporación."
-    elif es_plaga or riesgo_fitosanitario > 75.0:
-        accion = f"🛡️ **Tratamiento Fitosanitario Recomendado:** Realiza una inspección minuciosa en el envés de las hojas y axilas. Si detectas insectos chupadores o ácaros, pulveriza con una emulsión de jabón potásico y aceite de neem al 2%. Si hay signos de hongos (polvo blanco o pústulas), mejora la ventilación y aplica un fungicida preventivo."
-    elif es_amarillo:
-        accion = f"🌿 **Manejo de Clorosis:** El amarillamiento foliar suele asociarse a asfixia radicular por exceso de agua o a deficiencia de hierro (clorosis férrica). Verifica que el drenaje sea óptimo y complementa con quelatos de hierro si las nervaduras permanecen verdes."
-    elif es_flor:
-        accion = f"🌸 **Estimulación Floral:** Para favorecer una floración abundante y evitar la caída prematura de botones, mantén una buena exposición solar directa y evita los fertilizantes con exceso de nitrógeno."
-    elif es_poda:
-        accion = f"✂️ **Guía de Poda:** Las podas de formación deben ejecutarse hacia finales del reposo invernal o justo después de la floración principal, esterilizando las herramientas para evitar cancros fúngicos."
-    else:
-        accion = f"🌱 **Recomendación General:** Mantén el régimen actual de monitoreo. Si observas cambios en la turgencia de las hojas o el color de los brotes, ajústalo según las pautas de la especie."
-
-    return f"{diag_intro}\n\n{cuerpo_respuesta}\n\n{accion}"
+    return f"{respuesta_base}{alerta_sed}"
 
 def consultar_asesor(planta_id: int, consulta_usuario: str, prioridad_riego: float = None, riesgo_fitosanitario: float = None):
     """Ejecuta el pipeline RAG combinando telemetría del SED, filtrado estricto por especie y síntesis experta."""

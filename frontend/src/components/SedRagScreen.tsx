@@ -28,6 +28,7 @@ import {
   checkBackendHealth,
   AsesorResponse
 } from '../services/api';
+import ReactMarkdown from 'react-markdown';
 
 interface SedRagScreenProps {
   specimens: Specimen[];
@@ -456,6 +457,22 @@ export const SedRagScreen: React.FC<SedRagScreenProps> = ({
       r.consequent.toLowerCase().includes(ruleSearch.toLowerCase());
     return matchesCat && matchesSearch;
   });
+  
+  if (specimens.length === 0) {
+    return (
+      <div className="bg-white rounded-3xl p-8 text-center border border-[#dce7d5] space-y-3 mt-4">
+        <div className="w-12 h-12 bg-[#e3eedb] text-[#334c2b] rounded-2xl mx-auto flex items-center justify-center">
+          <Bot className="w-6 h-6" />
+        </div>
+        <h3 className="font-botanical text-[20px] font-bold text-[#22371c]">
+          El Asesor SED requiere ejemplares
+        </h3>
+        <p className="text-[13px] text-[#556c4e] max-w-md mx-auto">
+          Para que el Chatbot con lógica difusa y RAG pueda evaluar la telemetría y recomendar acciones, primero debes plantar un ejemplar en tu jardín desde el Dashboard.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4 pb-4">
@@ -711,7 +728,9 @@ export const SedRagScreen: React.FC<SedRagScreenProps> = ({
                       </div>
                     )}
 
-                    <p className="whitespace-pre-line">{msg.text}</p>
+                    <div className="whitespace-pre-line prose prose-sm max-w-none text-[#22331d]">
+                      <ReactMarkdown>{msg.text}</ReactMarkdown>
+                    </div>
 
                     {/* EMBEDDED DIAGNOSTIC CARD */}
                     {diag && (

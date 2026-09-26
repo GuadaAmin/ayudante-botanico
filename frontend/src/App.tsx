@@ -8,20 +8,25 @@ import { CatalogScreen } from './components/CatalogScreen';
 import { AlertDetailModal } from './components/AlertDetailModal';
 import { NewSpecimenModal } from './components/NewSpecimenModal';
 import { SpecimenDetailModal } from './components/SpecimenDetailModal';
+import { AuthScreen } from './components/AuthScreen';
 import { AlertInfo, CatalogSpecies, PlantStatus, Specimen } from './types';
-import { INITIAL_SPECIMENS } from './data/botanicalData';
-import { checkBackendHealth } from './services/api';
+import { checkBackendHealth, apiClient } from './services/api';
+import { LogOut } from 'lucide-react';
 
 export default function App() {
+  // Estado de Autenticación Multi-tenancy
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [currentUsername, setCurrentUsername] = useState<string | null>(null);
+
   // Navigation: Abre directamente en el Chatbot SED como experiencia principal
-  const [activeTab, setActiveTab] = useState<TabType>('asesor');
+  const [activeTab, setActiveTab] = useState<TabType>('dashboard');
   const [plantadasFilter, setPlantadasFilter] = useState<'all' | PlantStatus>('all');
 
   // Backend Connectivity
   const [backendConnected, setBackendConnected] = useState<boolean | null>(null);
 
-  // Garden Data State
-  const [specimens, setSpecimens] = useState<Specimen[]>(INITIAL_SPECIMENS);
+  // Garden Data State: Inicializa vacío (sin valores precargados globales)
+  const [specimens, setSpecimens] = useState<Specimen[]>([]);
 
   // Modals & Selected items
   const [selectedAlert, setSelectedAlert] = useState<{
@@ -45,6 +50,43 @@ export default function App() {
     }, 3200);
   };
 
+  // Función para obtener las plantas del usuario autenticado desde el backend FastAPI
+  const fetchUserPlantas = async () => {
+    try {
+      const response = await apiClient.get('/api/plantas');
+      const backendPlantas = response.data.map((p: any) => ({
+        id: String(p.id),
+        name: p.alias,
+        scientificName: p.especie?.nombre_cientifico || 'Especie Registrada',
+        commonName: p.especie?.nombre_comun || p.alias,
+        family: p.especie?.familia || 'Desconocida',
+        location: p.ubicacion || 'Cantero Principal',
+        soilMoisture: p.ultima_telemetria?.humedad_sustrato ?? 45,
+        ambientTemp: p.ultima_telemetria?.temperatura_ambiental ?? 24,
+        humidity: p.ultima_telemetria?.humedad_relativa ?? 50,
+        irrigationPriority: p.prioridad_riego_actual ?? 0,
+        phytosanitaryRisk: p.indice_riesgo_fitosanitario ?? 0,
+        status: p.prioridad_riego_actual > 65 ? 'critical' : p.indice_riesgo_fitosanitario > 75 ? 'attention' : 'stable',
+        lastWatered: 'Hace un tiempo',
+        imageUrl: p.especie?.imagen_url || 'https://images.unsplash.com/photo-1512428559087-560fa5ceab42?auto=format&fit=crop&q=80&w=600',
+        history: [],
+        activeAlert: null
+      }));
+      setSpecimens(backendPlantas);
+    } catch (err) {
+      console.error('Error al obtener las plantas del usuario:', err);
+    }
+  };
+
+  // Verificar token inicial al montar la aplicación
+  useEffect(() => {
+    const token = localStorage.getItem('token_autenticacion');
+    if (token) {
+      setIsAuthenticated(true);
+      fetchUserPlantas();
+    }
+  }, []);
+
   // Verificar estado del backend FastAPI al cargar la app
   const verifyBackend = async () => {
     const health = await checkBackendHealth();
@@ -57,8 +99,26 @@ export default function App() {
   };
 
   useEffect(() => {
-    verifyBackend();
-  }, []);
+    if (isAuthenticated) {
+      verifyBackend();
+    }
+  }, [isAuthenticated]);
+
+  const handleLoginSuccess = (token: string, username: string) => {
+    localStorage.setItem('token_autenticacion', token);
+    setIsAuthenticated(true);
+    setCurrentUsername(username);
+    fetchUserPlantas();
+    showToast(`👋 ¡Bienvenido de nuevo, ${username}!`);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('token_autenticacion');
+    setIsAuthenticated(false);
+    setCurrentUsername(null);
+    setSpecimens([]);
+    showToast('🔒 Sesión cerrada correctamente');
+  };
 
   // Actualizar estado del ejemplar cuando se ejecuta el diagnóstico SED
   const handleSpecimenEvaluated = (
@@ -75,9 +135,6 @@ export default function App() {
         let newAlert: AlertInfo | null = s.activeAlert || null;
         let newStatus: PlantStatus = s.status;
 
-        // Triggers según sección 5 del documento TP2:
-        // Si Prioridad de Riego > 65%, genera tarea de riego
-        // Si Riesgo Fitosanitario > 75%, genera alerta crítica
         if (pr > 65) {
           newAlert = {
             id: `alt-${Date.now()}`,
@@ -134,7 +191,6 @@ export default function App() {
     showToast(`Diagnóstico SED aplicado: Riego ${result.prioridad_riego}%, Fitosanitario ${result.riesgo_fitosanitario}%`);
   };
 
-  // Water specimen action
   const handleWaterSpecimen = (specimenId: string) => {
     setSpecimens((prev) =>
       prev.map((s) => {
@@ -143,13 +199,11 @@ export default function App() {
         const newMoisture = Math.min(s.soilMoisture + 45, 88);
         const newIrrigationPriority = Math.max(Math.round(s.irrigationPriority - 55), 12);
         
-        // If alert was irrigation, clear or downgrade it
         let newAlert = s.activeAlert;
         if (newAlert && newAlert.type === 'irrigation') {
           newAlert = null;
         }
 
-        // Determine new status
         let newStatus: PlantStatus = s.status;
         if (s.status === 'critical' && (!newAlert || newAlert.severity !== 'critical')) {
           newStatus = s.phytosanitaryRisk > 60 ? 'attention' : 'stable';
@@ -180,7 +234,6 @@ export default function App() {
     showToast(`💧 Riego aplicado exitosamente a ${targetSpecimen?.name || 'el ejemplar'}`);
   };
 
-  // Resolve Phytosanitary alert
   const handleResolvePhyto = (specimenId: string) => {
     setSpecimens((prev) =>
       prev.map((s) => {
@@ -213,13 +266,45 @@ export default function App() {
     showToast('🌿 Tratamiento fitosanitario registrado y alerta resuelta');
   };
 
-  // Add new specimen
-  const handleAddSpecimen = (newSpecimen: Specimen) => {
-    setSpecimens((prev) => [newSpecimen, ...prev]);
-    showToast(`🌱 ¡${newSpecimen.name} incorporado exitosamente al jardín!`);
+  const handleAddSpecimen = async (newSpecimen: Specimen) => {
+    // Validación frontend O(n) para nombres duplicados
+    const nombreDuplicado = specimens.some(
+      (s) => s.name.toLowerCase() === newSpecimen.name.toLowerCase()
+    );
+    if (nombreDuplicado) {
+      showToast(`⚠️ Error: Ya existe un ejemplar llamado "${newSpecimen.name}".`);
+      return;
+    }
+
+    try {
+      await apiClient.post('/api/plantas', {
+        alias: newSpecimen.name,
+        ubicacion: newSpecimen.location,
+        nombre_cientifico: newSpecimen.scientificName,
+        nombre_comun: newSpecimen.commonName,
+        imagen_url: newSpecimen.imageUrl, // Inyección de la URL de la imagen al backend
+        familia: newSpecimen.family
+      });
+      fetchUserPlantas(); 
+      showToast(`🌱 ¡${newSpecimen.name} incorporado exitosamente!`);
+    } catch (err: any) {
+      console.error('Error al registrar planta:', err);
+      showToast(err.response?.data?.detail || '❌ Error al persistir la planta.');
+    }
   };
 
-  // Navigation handlers
+  const handleDeleteSpecimen = async (specimenId: string) => {
+    try {
+      await apiClient.delete(`/api/plantas/${specimenId}`);
+      setSelectedSpecimenForModal(null); // Cierra el modal
+      fetchUserPlantas(); // Refresca el estado global desde la base de datos
+      showToast('🗑️ Ejemplar eliminado de la base de datos.');
+    } catch (err: any) {
+      console.error('Error al eliminar:', err);
+      showToast('❌ Error de red al intentar eliminar el ejemplar.');
+    }
+  };
+
   const handleNavigateToPlantadasWithFilter = (filter: 'all' | PlantStatus = 'all') => {
     setPlantadasFilter(filter);
     setActiveTab('plantadas');
@@ -237,6 +322,21 @@ export default function App() {
 
   const activeAlertCount = specimens.filter((s) => !!s.activeAlert).length;
 
+  // SI EL USUARIO NO ESTÁ AUTENTICADO: Renderiza exclusivamente la pantalla de Login/Registro
+  if (!isAuthenticated) {
+    return (
+      <>
+        {toastMessage && (
+          <div className="fixed top-5 z-60 bg-[#22331d] text-white px-4 py-2.5 rounded-2xl shadow-xl text-[12.5px] font-medium flex items-center gap-2 border border-[#3e5635] animate-fadeIn">
+            <span>{toastMessage}</span>
+          </div>
+        )}
+        <AuthScreen onLoginSuccess={handleLoginSuccess} />
+      </>
+    );
+  }
+
+  // SI ESTÁ AUTENTICADO: Renderiza el sistema completo con barra de sesión
   return (
     <div className="min-h-screen bg-[#e7eee1] text-[#22331d] flex flex-col items-center justify-start sm:py-6 sm:px-4 selection:bg-[#c6dec0]">
       {/* Toast Notification */}
@@ -249,10 +349,25 @@ export default function App() {
         </div>
       )}
 
+      {/* Barra superior de control de usuario multi-tenancy */}
+      <div className="w-full max-w-5xl flex justify-end px-2 sm:px-0 mb-2">
+        <div className="bg-white/80 backdrop-blur-xs px-4 py-1.5 rounded-2xl border border-[#d9e5d2] shadow-xs flex items-center gap-3 text-[12px]">
+          <span className="text-[#556d4e]">Sesión activa: <strong className="text-[#22331d]">{currentUsername || 'Usuario'}</strong></span>
+          <button
+            onClick={handleLogout}
+            className="bg-[#fee2e2] hover:bg-[#fecaca] text-[#991b1b] font-bold px-2.5 py-1 rounded-xl flex items-center gap-1 transition-all cursor-pointer border border-[#fca5a5]"
+            title="Cerrar sesión"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span>Salir</span>
+          </button>
+        </div>
+      </div>
+
       {/* Main Container: Diseño Web Responsivo y Amplio */}
       <main
         id="app-main-canvas"
-        className="w-full max-w-5xl bg-[#f8faf6] sm:rounded-3xl shadow-xl sm:border border-[#d9e5d2] min-h-[850px] flex flex-col overflow-hidden my-0 sm:my-3"
+        className="w-full max-w-5xl bg-[#f8faf6] sm:rounded-3xl shadow-xl sm:border border-[#d9e5d2] min-h-[850px] flex flex-col overflow-hidden my-0 sm:my-1"
       >
         {/* Top Header */}
         <Header
@@ -321,7 +436,6 @@ export default function App() {
       </main>
 
       {/* MODALS */}
-      {/* Alert Detail & SED Rule Modal */}
       <AlertDetailModal
         alert={selectedAlert?.alert || null}
         specimen={selectedAlert?.specimen || null}
@@ -330,7 +444,6 @@ export default function App() {
         onResolvePhyto={handleResolvePhyto}
       />
 
-      {/* Register New Specimen Modal */}
       <NewSpecimenModal
         isOpen={isNewSpecimenModalOpen}
         preselectedSpecies={preselectedSpecies}
@@ -341,12 +454,12 @@ export default function App() {
         onAddSpecimen={handleAddSpecimen}
       />
 
-      {/* Detalle de Instancia: Telemetría, Evaluación SED, Chat RAG y Bitácora */}
       <SpecimenDetailModal
         specimen={selectedSpecimenForModal}
         onClose={() => setSelectedSpecimenForModal(null)}
         onWaterSpecimen={handleWaterSpecimen}
         onSpecimenEvaluated={handleSpecimenEvaluated}
+        onDeleteSpecimen={handleDeleteSpecimen} // NUEVA PROP
       />
     </div>
   );

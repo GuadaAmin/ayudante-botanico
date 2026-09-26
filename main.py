@@ -1,11 +1,16 @@
 from typing import List, Optional
 from datetime import datetime, timezone, timedelta
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from sqlalchemy import create_engine, desc
 from sqlalchemy.orm import sessionmaker, Session
+import bcrypt
+import jwt
+import os
+from dotenv import load_dotenv
 
 from modelos import (
     Base,
@@ -14,16 +19,48 @@ from modelos import (
     MedicionesAmbientales,
     BitacoraEventos,
     TareasPendientes,
-    AlertasMeteorologicas
+    AlertasMeteorologicas,
+    Usuario
 )
 from motor_difuso import evaluar_estado_planta
 from orquestador import evaluar_y_persistir
 from rag_pipeline import consultar_asesor
 
+# Carga las variables del archivo .env
+load_dotenv()
+
+# Configuración de Seguridad y JWT leída de la variable de entorno
+SECRET_KEY = os.getenv("SECRET_KEY", "fallback-inseguro-solo-para-desarrollo")
+ALGORITHM = "HS256"
+
+security = HTTPBearer(auto_error=False)
+
 # Inicialización de la base de datos relacional
 DATABASE_URL = "sqlite:///botanico.db"
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+# Asegurar creación de tablas (incluyendo usuarios)
+Base.metadata.create_all(bind=engine)
+
+# POBLAR CATÁLOGO BASE SI ESTÁ VACÍO 
+db_init = SessionLocal()
+if db_init.query(CatalogoEspecies).count() == 0:
+    especie_base = CatalogoEspecies(
+        nombre_comun="Especie del Catálogo",
+        nombre_cientifico="Plantae Genérica",
+        familia="Bignoniaceae",
+        umbral_temp_min=5.0,
+        umbral_temp_max=40.0,
+        req_hidrico_base=50.0,
+        exposicion_solar="Pleno Sol",
+        epoca_floracion="Primavera",
+        descripcion="Especie base de referencia del sistema.",
+        imagen_url="https://images.unsplash.com/photo-1512428559087-560fa5ceab42?auto=format&fit=crop&q=80&w=600"
+    )
+    db_init.add(especie_base)
+    db_init.commit()
+db_init.close()
 
 def get_db():
     db = SessionLocal()
@@ -34,8 +71,8 @@ def get_db():
 
 app = FastAPI(
     title="API - Sistema Experto Botánico",
-    description="Backend Neurosimbólico: Sistema Experto Difuso (Mamdani skfuzzy), Pipeline RAG (ChromaDB) y Persistencia Relacional (SQLite).",
-    version="2.0.0"
+    description="Backend Neurosimbólico con Gestión de Usuarios (Multi-tenancy), Sistema Experto Difuso (Mamdani), Pipeline RAG y Persistencia Relacional.",
+    version="2.1.0"
 )
 
 app.add_middleware(
@@ -46,8 +83,29 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Esquemas Pydantic para Validación de Cargas Útiles (Payloads)
+# Dependencia para autenticación y obtención del usuario actual
+def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security), db: Session = Depends(get_db)) -> Usuario:
+    if not credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Credenciales de autenticación no proporcionadas o token ausente.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    try:
+        token = credentials.credentials
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido.")
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido o expirado.")
+    
+    user = db.query(Usuario).filter_by(username=username).first()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuario no encontrado.")
+    return user
 
+# Esquemas Pydantic para Validación de Cargas Útiles (Payloads)
 class Telemetria(BaseModel):
     planta_id: int
     humedad_sustrato: float
@@ -56,7 +114,7 @@ class Telemetria(BaseModel):
 
 class Consulta(BaseModel):
     planta_id: int
-    mensaje: str
+    pregunta: str
     prioridad_riego: float = 0.0
     riesgo_fitosanitario: float = 0.0
 
@@ -65,12 +123,72 @@ class NuevaPlanta(BaseModel):
     alias: str
     ubicacion: Optional[str] = "Cantero Principal"
 
+class UserRegister(BaseModel):
+    username: str
+    password: str
+    confirm_password: str
+
+class UserLogin(BaseModel):
+    username: str
+    password: str
+
+# Endpoints de Autenticación y Registro
+@app.post("/api/auth/register", tags=["Autenticación y Usuarios"])
+def registrar_usuario(datos: UserRegister, db: Session = Depends(get_db)):
+    if datos.password != datos.confirm_password:
+        raise HTTPException(status_code=400, detail="Las contraseñas no coinciden.")
+    
+    existente = db.query(Usuario).filter_by(username=datos.username).first()
+    if existente:
+        raise HTTPException(status_code=400, detail="El nombre de usuario ya está en uso.")
+    
+    # Hasheo directo con la librería bcrypt (truncando a 72 bytes por seguridad)
+    hashed_bytes = bcrypt.hashpw(datos.password[:72].encode('utf-8'), bcrypt.gensalt())
+    hashed_pw = hashed_bytes.decode('utf-8')
+
+    nuevo_usuario = Usuario(
+        username=datos.username,
+        hashed_password=hashed_pw
+    )
+    db.add(nuevo_usuario)
+    db.commit()
+    db.refresh(nuevo_usuario)
+    return {"status": "ok", "message": "Usuario registrado exitosamente", "user_id": nuevo_usuario.id}
+
+@app.post("/api/auth/login", tags=["Autenticación y Usuarios"])
+def login_usuario(datos: UserLogin, db: Session = Depends(get_db)):
+    user = db.query(Usuario).filter_by(username=datos.username).first()
+    
+    # Verificación directa con bcrypt
+    password_valida = False
+    if user:
+        try:
+            password_valida = bcrypt.checkpw(
+                datos.password[:72].encode('utf-8'), 
+                user.hashed_password.encode('utf-8')
+            )
+        except Exception:
+            password_valida = False
+
+    if not user or not password_valida:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciales incorrectas.")
+    
+    access_token_expires = timedelta(days=7)
+    expire = datetime.now(timezone.utc) + access_token_expires
+    to_encode = {"sub": user.username, "exp": expire}
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    
+    return {
+        "access_token": encoded_jwt,
+        "token_type": "bearer",
+        "username": user.username,
+        "user_id": user.id
+    }
+
+# Endpoints de Negocio y Sistema Experto
 @app.post("/api/evaluar", tags=["Sistema Experto Difuso"])
-def evaluar_instancia(datos: Telemetria):
-    """
-    Fases 2, 3 y 5: Inyecta hechos crisp al SED, calcula centroides matemáticos
-    y persiste la medición, actualización de estado y triggers en SQLite.
-    """
+def evaluar_instancia(datos: Telemetria, current_user: Usuario = Depends(get_current_user)):
+    """Inyecta hechos crisp al SED, calcula centroides y persiste medición asegurando pertenencia al usuario."""
     resultado = evaluar_y_persistir(
         planta_id=datos.planta_id,
         humedad_sustrato=datos.humedad_sustrato,
@@ -85,14 +203,11 @@ def evaluar_instancia(datos: Telemetria):
     }
 
 @app.post("/api/asesor", tags=["Pipeline RAG"])
-def asistente_rag(consulta: Consulta):
-    """
-    Fase 4: Pipeline RAG combinando telemetría del SED con recuperación
-    semántica multilingüe en ChromaDB (Similitud Coseno) y síntesis experta.
-    """
+def asistente_rag(consulta: Consulta, current_user: Usuario = Depends(get_current_user)):
+    """Pipeline RAG combinando telemetría del SED con recuperación semántica en ChromaDB y síntesis."""
     resultado = consultar_asesor(
         consulta.planta_id,
-        consulta.mensaje,
+        consulta.pregunta,
         prioridad_riego=consulta.prioridad_riego,
         riesgo_fitosanitario=consulta.riesgo_fitosanitario
     )
@@ -106,7 +221,6 @@ def asistente_rag(consulta: Consulta):
             "estado_sed": resultado.get("estado_sed", "")
         }
     return {"payload_llm": resultado, "respuesta_experta": str(resultado)}
-
 
 @app.get("/api/catalogo", tags=["Catálogo Botánico"])
 def listar_catalogo(db: Session = Depends(get_db)):
@@ -130,9 +244,9 @@ def listar_catalogo(db: Session = Depends(get_db)):
     ]
 
 @app.get("/api/plantas", tags=["Inventario y Telemetría"])
-def listar_plantas(db: Session = Depends(get_db)):
-    """Devuelve las plantas registradas con su estado actual y última medición."""
-    plantas = db.query(PlantasRegistradas).all()
+def listar_plantas(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+    """Devuelve únicamente las plantas registradas asociadas al usuario autenticado."""
+    plantas = db.query(PlantasRegistradas).filter_by(user_id=current_user.id).all()
     resultado = []
     for p in plantas:
         ultima_med = db.query(MedicionesAmbientales).filter_by(planta_id=p.id).order_by(desc(MedicionesAmbientales.fecha)).first()
@@ -146,7 +260,8 @@ def listar_plantas(db: Session = Depends(get_db)):
                 "id": p.especie.id if p.especie else None,
                 "nombre_comun": p.especie.nombre_comun if p.especie else p.alias,
                 "nombre_cientifico": p.especie.nombre_cientifico if p.especie else "",
-                "imagen_url": p.especie.imagen_url if p.especie else None
+                "imagen_url": p.especie.imagen_url if p.especie else None,
+                "familia": p.especie.familia if p.especie else "Familia desconocida"
             },
             "ultima_telemetria": {
                 "humedad_sustrato": ultima_med.humedad_sustrato if ultima_med else 45.0,
@@ -158,11 +273,11 @@ def listar_plantas(db: Session = Depends(get_db)):
     return resultado
 
 @app.get("/api/plantas/{planta_id}", tags=["Inventario y Telemetría"])
-def detalle_planta(planta_id: int, db: Session = Depends(get_db)):
-    """Devuelve la ficha detallada de una planta, sus mediciones recientes y su bitácora."""
-    planta = db.query(PlantasRegistradas).filter_by(id=planta_id).first()
+def detalle_planta(planta_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+    """Devuelve la ficha detallada de una planta del usuario, sus mediciones y bitácora."""
+    planta = db.query(PlantasRegistradas).filter_by(id=planta_id, user_id=current_user.id).first()
     if not planta:
-        raise HTTPException(status_code=404, detail="Planta no encontrada")
+        raise HTTPException(status_code=404, detail="Planta no encontrada o no pertenece al usuario.")
     
     mediciones = db.query(MedicionesAmbientales).filter_by(planta_id=planta.id).order_by(desc(MedicionesAmbientales.fecha)).limit(10).all()
     eventos = db.query(BitacoraEventos).filter_by(planta_id=planta.id).order_by(desc(BitacoraEventos.fecha)).limit(15).all()
@@ -201,45 +316,98 @@ def detalle_planta(planta_id: int, db: Session = Depends(get_db)):
         ]
     }
 
-@app.post("/api/plantas", tags=["Inventario y Telemetría"])
-def registrar_nueva_planta(datos: NuevaPlanta, db: Session = Depends(get_db)):
-    """Registra una nueva planta en el jardín botánico a partir de una especie del catálogo."""
-    especie = db.query(CatalogoEspecies).filter_by(id=datos.especie_id).first()
+# 1. Esquema actualizado para incluir imagen
+class PlantaCreate(BaseModel):
+    alias: str
+    ubicacion: str
+    nombre_cientifico: str
+    nombre_comun: str
+    imagen_url: str
+    familia: str
+
+# 2. Endpoint POST modificado (Unicidad e Imagen)
+@app.post("/api/plantas", tags=["Plantas"])
+def registrar_nueva_planta(datos: PlantaCreate, db: Session = Depends(get_db), token: HTTPAuthorizationCredentials = Depends(security)):
+    if not token:
+        raise HTTPException(status_code=401, detail="Token faltante")
+    try:
+        payload = jwt.decode(token.credentials, SECRET_KEY, algorithms=[ALGORITHM])
+        username = payload.get("sub")
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="Token inválido")
+        
+    current_user = db.query(Usuario).filter_by(username=username).first()
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Usuario no encontrado")
+
+    # VALIDACIÓN: Impedir nombres duplicados para el mismo usuario
+    existente = db.query(PlantasRegistradas).filter_by(user_id=current_user.id, alias=datos.alias).first()
+    if existente:
+        raise HTTPException(status_code=400, detail=f"Ya tienes un ejemplar registrado con el nombre '{datos.alias}'.")
+
+    # Patrón Get-or-Create
+    especie = db.query(CatalogoEspecies).filter_by(nombre_cientifico=datos.nombre_cientifico).first()
     if not especie:
-        raise HTTPException(status_code=404, detail="Especie no encontrada en el catálogo")
-    
-    nueva = PlantasRegistradas(
+        especie = CatalogoEspecies(
+            nombre_comun=datos.nombre_comun,
+            nombre_cientifico=datos.nombre_cientifico,
+            familia=datos.familia,
+            umbral_temp_min=5.0,
+            umbral_temp_max=40.0,
+            req_hidrico_base=50.0,
+            exposicion_solar="Media",
+            epoca_floracion="Variable",
+            descripcion=f"Especie importada desde el frontend: {datos.nombre_comun}",
+            imagen_url=datos.imagen_url  # Se persiste la imagen real
+        )
+        db.add(especie)
+        db.commit()
+        db.refresh(especie)
+
+    nueva_planta = PlantasRegistradas(
+        user_id=current_user.id,
         especie_id=especie.id,
         alias=datos.alias,
-        ubicacion=datos.ubicacion or "Cantero Principal",
-        prioridad_riego_actual=25.0,
-        indice_riesgo_fitosanitario=15.0
+        ubicacion=datos.ubicacion,
+        prioridad_riego_actual=0.0,
+        indice_riesgo_fitosanitario=0.0
     )
-    db.add(nueva)
-    db.flush()
-
-    # Evento en bitácora
-    evento = BitacoraEventos(
-        planta_id=nueva.id,
-        tipo_evento="REGISTRO_INICIAL",
-        observaciones=f"Incorporación de {nueva.alias} ({especie.nombre_cientifico}) al jardín."
-    )
-    db.add(evento)
+    db.add(nueva_planta)
     db.commit()
-    db.refresh(nueva)
-    return {"status": "ok", "planta_id": nueva.id, "alias": nueva.alias}
+    
+    return {"status": "ok", "planta_id": nueva_planta.id}
+
+# 3. Endpoint DELETE
+@app.delete("/api/plantas/{planta_id}", tags=["Plantas"])
+def eliminar_planta(planta_id: int, db: Session = Depends(get_db), token: HTTPAuthorizationCredentials = Depends(security)):
+    if not token:
+        raise HTTPException(status_code=401, detail="Token faltante")
+    try:
+        payload = jwt.decode(token.credentials, SECRET_KEY, algorithms=[ALGORITHM])
+        username = payload.get("sub")
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="Token inválido")
+        
+    current_user = db.query(Usuario).filter_by(username=username).first()
+    
+    # Buscar la planta asegurando que pertenezca al usuario que ejecuta la petición
+    planta = db.query(PlantasRegistradas).filter_by(id=planta_id, user_id=current_user.id).first()
+    if not planta:
+        raise HTTPException(status_code=404, detail="El ejemplar no existe o no tienes permisos para eliminarlo.")
+    
+    db.delete(planta)
+    db.commit()
+    return {"status": "ok", "message": "Ejemplar eliminado correctamente."}
 
 @app.post("/api/plantas/{planta_id}/regar", tags=["Inventario y Telemetría"])
-def aplicar_riego(planta_id: int, db: Session = Depends(get_db)):
-    """Aplica riego a la planta, resuelve tareas de riego pendientes y registra en bitácora."""
-    planta = db.query(PlantasRegistradas).filter_by(id=planta_id).first()
+def aplicar_riego(planta_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+    """Aplica riego a una planta del usuario, resuelve tareas y registra el evento."""
+    planta = db.query(PlantasRegistradas).filter_by(id=planta_id, user_id=current_user.id).first()
     if not planta:
-        raise HTTPException(status_code=404, detail="Planta no encontrada")
+        raise HTTPException(status_code=404, detail="Planta no encontrada o no pertenece al usuario.")
     
-    # Reducir prioridad de riego
     planta.prioridad_riego_actual = max(round(planta.prioridad_riego_actual - 50.0, 1), 15.0)
 
-    # Completar tareas de riego pendientes
     tareas_pendientes = db.query(TareasPendientes).filter_by(
         planta_id=planta.id,
         tipo_tarea="REGAR",
@@ -248,39 +416,43 @@ def aplicar_riego(planta_id: int, db: Session = Depends(get_db)):
     for t in tareas_pendientes:
         t.estado_tarea = "COMPLETADA"
 
-    # Registrar evento en bitácora
     evento = BitacoraEventos(
         planta_id=planta.id,
         tipo_evento="RIEGO_APLICADO",
-        observaciones="Riego de recuperación aplicado. Déficit hídrico resuelto."
+        observaciones="Riego de recuperación aplicado por el usuario."
     )
     db.add(evento)
     db.commit()
     return {
         "status": "ok",
-        "mensaje": f"Riego aplicado a {planta.alias}",
+        "pregunta": f"Riego aplicado a {planta.alias}",
         "nueva_prioridad_riego": planta.prioridad_riego_actual
     }
 
 @app.get("/api/alertas", tags=["Alertas y Tareas"])
-def listar_alertas(db: Session = Depends(get_db)):
-    """Lista las alertas activas en el jardín botánico."""
-    alertas = db.query(AlertasMeteorologicas).all()
+def listar_alertas(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+    """Lista las alertas meteorológicas correspondientes a las plantas del usuario."""
+    plantas_ids = [p.id for p in db.query(PlantasRegistradas).filter_by(user_id=current_user.id).all()]
+    alertas = db.query(AlertasMeteorologicas).filter(AlertasMeteorologicas.planta_id.in_(plantas_ids)).all() if plantas_ids else []
     return [
         {
             "id": a.id,
             "planta_id": a.planta_id,
             "severidad": a.severidad,
-            "mensaje": a.mensaje,
+            "pregunta": a.pregunta,
             "fecha_expiracion": a.fecha_expiracion.isoformat()
         }
         for a in alertas
     ]
 
 @app.get("/api/tareas", tags=["Alertas y Tareas"])
-def listar_tareas(db: Session = Depends(get_db)):
-    """Lista las tareas pendientes generadas por los disparadores del SED."""
-    tareas = db.query(TareasPendientes).filter_by(estado_tarea="PENDIENTE").all()
+def listar_tareas(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+    """Lista las tareas pendientes generadas para las plantas del usuario."""
+    plantas_ids = [p.id for p in db.query(PlantasRegistradas).filter_by(user_id=current_user.id).all()]
+    tareas = db.query(TareasPendientes).filter(
+        TareasPendientes.planta_id.in_(plantas_ids),
+        TareasPendientes.estado_tarea == "PENDIENTE"
+    ).all() if plantas_ids else []
     return [
         {
             "id": t.id,
@@ -338,7 +510,7 @@ def home():
             .card { background: white; max-width: 680px; width: 100%; border-radius: 24px; padding: 32px; box-shadow: 0 10px 30px rgba(0,0,0,0.06); border: 1px solid #d3e2ce; }
             h1 { color: #22371c; margin-top: 0; font-size: 26px; }
             p { font-size: 14.5px; line-height: 1.6; color: #435b3c; }
-            .badge { display: inline-block; background: #e0edd9; color: #26401f; font-weight: 600; font-size: 12px; padding: 4px 10px; rounded: 8px; border-radius: 9999px; margin-bottom: 16px; }
+            .badge { display: inline-block; background: #e0edd9; color: #26401f; font-weight: 600; font-size: 12px; padding: 4px 10px; border-radius: 9999px; margin-bottom: 16px; }
             .btn { display: inline-block; background: #3b5731; color: white; text-decoration: none; font-weight: 600; font-size: 14px; padding: 10px 20px; border-radius: 12px; margin-top: 10px; transition: background 0.2s; }
             .btn:hover { background: #2b4023; }
             .endpoints { margin-top: 24px; border-top: 1px solid #e2ede0; padding-top: 20px; font-size: 13px; font-family: monospace; }
@@ -347,19 +519,21 @@ def home():
     </head>
     <body>
         <div class="card">
-            <span class="badge">🌿 Backend Neurosimbólico Activo</span>
+            <span class="badge">🌿 Backend Neurosimbólico Multiusuario Activo</span>
             <h1>API - Sistema Experto Botánico</h1>
-            <p>Servicios REST para el Asesoramiento, Diagnóstico Fitosanitario y Riego mediante <strong>Lógica Difusa (Mamdani)</strong> y <strong>RAG (ChromaDB)</strong> con persistencia en <strong>SQLite</strong>.</p>
+            <p>Servicios REST con autenticación JWT, Aislamiento de Datos por Usuario, Lógica Difusa (Mamdani) y RAG (ChromaDB) sobre <strong>SQLite</strong>.</p>
             <a href="/docs" class="btn">🚀 Abrir Documentación Swagger UI</a>
             <div class="endpoints">
-                <strong>Puntos de Acceso Disponibles:</strong>
+                <strong>Nuevos Endpoints de Autenticación:</strong>
+                <div class="ep-item">POST /api/auth/register - Registro de Nuevos Usuarios</div>
+                <div class="ep-item">POST /api/auth/login - Autenticación y Generación de Token JWT</div>
+                <br>
+                <strong>Puntos de Acceso Protegidos:</strong>
                 <div class="ep-item">POST /api/evaluar - Motor Difuso SED + Persistencia</div>
                 <div class="ep-item">POST /api/asesor - Pipeline RAG Multilingüe (ChromaDB)</div>
                 <div class="ep-item">GET /api/catalogo - Catálogo de Especies Regionales</div>
-                <div class="ep-item">GET /api/plantas - Inventario de Ejemplares Monitoreados</div>
-                <div class="ep-item">GET /api/alertas - Alertas Meteorológicas y Fitosanitarias</div>
-                <div class="ep-item">GET /api/tareas - Tareas Pendientes del Jardín</div>
-                <div class="ep-item">GET /api/reglas - Catálogo de las 20 Reglas Mamdani</div>
+                <div class="ep-item">GET /api/plantas - Inventario Propio del Usuario</div>
+                <div class="ep-item">GET /api/alertas - Alertas del Jardín del Usuario</div>
             </div>
         </div>
     </body>
