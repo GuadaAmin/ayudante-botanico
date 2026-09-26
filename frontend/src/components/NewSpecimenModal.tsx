@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Plus, Sparkles, MapPin, Droplets, Check } from 'lucide-react';
+import { X, Plus, MapPin, Check, Sparkles } from 'lucide-react';
 import { CatalogSpecies, Specimen } from '../types';
 import { CATALOG_SPECIES } from '../data/botanicalData';
 
@@ -7,7 +7,8 @@ interface NewSpecimenModalProps {
   isOpen: boolean;
   preselectedSpecies?: CatalogSpecies | null;
   onClose: () => void;
-  onAddSpecimen: (newSpecimen: Specimen) => void;
+  // Actualizado para requerir una promesa
+  onAddSpecimen: (newSpecimen: Specimen) => Promise<void>;
 }
 
 export const NewSpecimenModal: React.FC<NewSpecimenModalProps> = ({
@@ -29,6 +30,10 @@ export const NewSpecimenModal: React.FC<NewSpecimenModalProps> = ({
   const [soilMoisture, setSoilMoisture] = useState<number>(45);
   const [notes, setNotes] = useState('');
 
+  // Nuevos estados para control de interfaz
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   const handleSpeciesChange = (speciesId: string) => {
     setSelectedSpeciesId(speciesId);
     const sp = CATALOG_SPECIES.find((s) => s.id === speciesId);
@@ -37,8 +42,11 @@ export const NewSpecimenModal: React.FC<NewSpecimenModalProps> = ({
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // Convertido a función asíncrona
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorMessage(null); // Limpiar errores previos
+    setIsSubmitting(true);
 
     const isDry = soilMoisture < 25;
     const initialStatus = isDry ? 'attention' : 'stable';
@@ -79,14 +87,20 @@ export const NewSpecimenModal: React.FC<NewSpecimenModalProps> = ({
           id: `h-${Date.now()}`,
           date: new Date().toISOString().split('T')[0],
           type: 'diagnostico',
-          description: `Plantación y alta en el SED con sensor telemétrico en ${location}`,
+          description: `Plantación y alta en el SED con sensor telemétrico en ${location || 'ubicación general'}`,
           operator: 'Administrador del Jardín'
         }
       ]
     };
 
-    onAddSpecimen(newSpecimen);
-    onClose();
+    try {
+      await onAddSpecimen(newSpecimen);
+      onClose(); // Solo se cierra si la promesa se resuelve sin arrojar excepciones
+    } catch (error: any) {
+      setErrorMessage(error.message); // Captura el error y mantiene el estado actual
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -172,7 +186,6 @@ export const NewSpecimenModal: React.FC<NewSpecimenModalProps> = ({
               <input
                 id="new-specimen-location-input"
                 type="text"
-                // Se elimina la propiedad 'required'
                 value={location}
                 onChange={(e) => setLocation(e.target.value)}
                 placeholder="Ej: Sector Norte - Vereda Arbolada"
@@ -214,22 +227,36 @@ export const NewSpecimenModal: React.FC<NewSpecimenModalProps> = ({
             />
           </div>
 
+          {/* Renderizado condicional del error de validación */}
+          {errorMessage && (
+            <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-xl text-[12.5px] mb-2 font-medium flex items-center gap-2">
+              <span className="text-xl">⚠️</span>
+              {errorMessage}
+            </div>
+          )}
+
           {/* Submit */}
           <div className="pt-2 flex items-center gap-2">
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 bg-[#f0f4ec] hover:bg-[#e4ebd9] text-[#485e40] py-2.5 rounded-xl font-semibold text-[13px] transition-colors"
+              disabled={isSubmitting}
+              className="flex-1 bg-[#f0f4ec] hover:bg-[#e4ebd9] text-[#485e40] py-2.5 rounded-xl font-semibold text-[13px] transition-colors disabled:opacity-70 disabled:cursor-not-allowed"
             >
               Cancelar
             </button>
             <button
               id="btn-confirm-add-specimen"
               type="submit"
-              className="flex-1 bg-[#526b4a] hover:bg-[#43573c] text-white py-2.5 rounded-xl font-bold text-[13px] flex items-center justify-center gap-1.5 shadow-xs transition-all active:scale-98"
+              disabled={isSubmitting}
+              className="flex-1 bg-[#526b4a] hover:bg-[#43573c] text-white py-2.5 rounded-xl font-bold text-[13px] flex items-center justify-center gap-1.5 shadow-xs transition-all active:scale-98 disabled:opacity-70 disabled:cursor-not-allowed"
             >
-              <Check className="w-4 h-4 stroke-[2.5]" />
-              <span>Guardar en Jardín</span>
+              {isSubmitting ? (
+                <Sparkles className="w-4 h-4 animate-spin" />
+              ) : (
+                <Check className="w-4 h-4 stroke-[2.5]" />
+              )}
+              <span>{isSubmitting ? 'Guardando...' : 'Guardar en Jardín'}</span>
             </button>
           </div>
         </form>

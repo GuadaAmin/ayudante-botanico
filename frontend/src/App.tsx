@@ -83,6 +83,25 @@ export default function App() {
     const token = localStorage.getItem('token_autenticacion');
     if (token) {
       setIsAuthenticated(true);
+      
+      // Extraer el nombre de usuario decodificando el payload del JWT
+      try {
+        const base64Payload = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+        const jsonPayload = decodeURIComponent(
+          window.atob(base64Payload)
+            .split('')
+            .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+            .join('')
+        );
+        const decoded = JSON.parse(jsonPayload);
+        
+        if (decoded.sub) {
+          setCurrentUsername(decoded.sub);
+        }
+      } catch (err) {
+        console.error('Error al decodificar el token JWT en el cliente:', err);
+      }
+
       fetchUserPlantas();
     }
   }, []);
@@ -267,13 +286,13 @@ export default function App() {
   };
 
   const handleAddSpecimen = async (newSpecimen: Specimen) => {
-    // Validación frontend O(n) para nombres duplicados
+    // Validación frontend O(n)
     const nombreDuplicado = specimens.some(
       (s) => s.name.toLowerCase() === newSpecimen.name.toLowerCase()
     );
     if (nombreDuplicado) {
-      showToast(`⚠️ Error: Ya existe un ejemplar llamado "${newSpecimen.name}".`);
-      return;
+      // Arrojar el error detiene la ejecución y lo envía al catch del Modal
+      throw new Error(`El nombre "${newSpecimen.name}" ya está en uso. Por favor, elige un alias distinto.`);
     }
 
     try {
@@ -282,7 +301,7 @@ export default function App() {
         ubicacion: newSpecimen.location,
         nombre_cientifico: newSpecimen.scientificName,
         nombre_comun: newSpecimen.commonName,
-        imagen_url: newSpecimen.imageUrl, // Inyección de la URL de la imagen al backend
+        imagen_url: newSpecimen.imageUrl,
         familia: newSpecimen.family,
         notas_iniciales: newSpecimen.notes || ''
       });
@@ -290,7 +309,8 @@ export default function App() {
       showToast(`🌱 ¡${newSpecimen.name} incorporado exitosamente!`);
     } catch (err: any) {
       console.error('Error al registrar planta:', err);
-      showToast(err.response?.data?.detail || '❌ Error al persistir la planta.');
+      // Trasladar también el error del backend al Modal
+      throw new Error(err.response?.data?.detail || 'Error del servidor al persistir la planta.');
     }
   };
 

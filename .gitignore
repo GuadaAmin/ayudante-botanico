@@ -2,6 +2,9 @@
 venv/
 __pycache__/
 
+# Base de datos
+botanico.db
+
 # Base de datos vectorial (Binarios que se regeneran localmente)
 botanico_vectores/
 
