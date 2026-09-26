@@ -72,8 +72,46 @@ export default function App() {
   const fetchUserPlantas = async () => {
     try {
       const response = await apiClient.get('/api/plantas');
-      if (Array.isArray(response.data) && response.data.length > 0) {
-        const backendPlantas = response.data.map((p: any) => ({
+      const backendPlantas = response.data.map((p: any) => {
+        const pr = p.prioridad_riego_actual ?? 0;
+        const rf = p.indice_riesgo_fitosanitario ?? 0;
+        
+        let currentStatus: PlantStatus = 'stable';
+        let currentAlert: AlertInfo | null = null;
+
+        if (pr > 65) {
+          currentStatus = pr > 80 ? 'critical' : 'attention';
+          currentAlert = {
+            id: `alt-${p.id}-${Date.now()}`,
+            specimenId: String(p.id),
+            specimenName: p.alias,
+            type: 'irrigation',
+            label: 'Riego Requerido',
+            reason: `Prioridad de riego calculada por el SED en ${pr}% (>65%). Disparador de riego activado.`,
+            irrigationPriority: pr,
+            phytosanitaryRisk: rf,
+            severity: currentStatus,
+            ruleTriggered: pr > 80 ? 'REG-01' : 'REG-02',
+          };
+        } else if (rf > 75) {
+          currentStatus = 'critical';
+          currentAlert = {
+            id: `alt-${p.id}-${Date.now()}`,
+            specimenId: String(p.id),
+            specimenName: p.alias,
+            type: 'phytosanitary',
+            label: 'Revisión Fitosanitaria',
+            reason: `Riesgo fitosanitario elevado (${rf}% > 75%). Iniciar protocolo preventivo.`,
+            irrigationPriority: pr,
+            phytosanitaryRisk: rf,
+            severity: 'critical',
+            ruleTriggered: 'REG-11',
+          };
+        } else if (rf > 60) {
+          currentStatus = 'attention';
+        }
+
+        return {
           id: String(p.id),
           name: p.alias,
           scientificName: p.especie?.nombre_cientifico || 'Especie Registrada',
@@ -83,20 +121,18 @@ export default function App() {
           soilMoisture: p.ultima_telemetria?.humedad_sustrato ?? 45,
           temperature: p.ultima_telemetria?.temperatura_ambiental ?? 24,
           humidity: p.ultima_telemetria?.humedad_relativa ?? 50,
-          irrigationPriority: p.prioridad_riego_actual ?? 0,
-          phytosanitaryRisk: p.indice_riesgo_fitosanitario ?? 0,
-          status: (p.prioridad_riego_actual > 65 ? 'critical' : p.indice_riesgo_fitosanitario > 75 ? 'attention' : 'stable') as PlantStatus,
+          irrigationPriority: pr,
+          phytosanitaryRisk: rf,
+          status: currentStatus,
           lastWatered: 'Hace un tiempo',
           imageUrl: p.especie?.imagen_url || 'https://images.unsplash.com/photo-1512428559087-560fa5ceab42?auto=format&fit=crop&q=80&w=600',
-          plantedDate: p.fecha_plantacion || new Date().toISOString().split('T')[0],
-          notes: p.notas_iniciales || 'Ejemplar sincronizado desde el backend',
           history: p.historial || [],
-          activeAlert: null
-        }));
-        setSpecimens(backendPlantas);
-      }
+          activeAlert: currentAlert // Ko'ápe oñemoĩ pe alerta teete
+        };
+      });
+      setSpecimens(backendPlantas);
     } catch (err) {
-      console.warn('Backend sin plantas o en modo local, usando ejemplares base:', err);
+      console.error('Error al obtener las plantas del usuario:', err);
     }
   };
 
