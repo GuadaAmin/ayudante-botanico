@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { Specimen } from '../types';
 import { evaluarSED, consultarAsesorRAG, extractPlantaId } from '../services/api';
+import { getAllRAGDocuments } from '../services/customBotanicalStorage';
 
 interface SpecimenDetailModalProps {
   specimen: Specimen | null;
@@ -129,11 +130,26 @@ export const SpecimenDetailModal: React.FC<SpecimenDetailModalProps> = ({
         riesgo_fitosanitario: specimen.phytosanitaryRisk
       });
 
+      // Verificar literatura RAG personalizada para este ejemplar
+      const allRAG = getAllRAGDocuments();
+      const customDocs = allRAG.filter((d) =>
+        d.tags.some(
+          (t) =>
+            t.toLowerCase() === specimen.commonName.toLowerCase() ||
+            t.toLowerCase() === specimen.scientificName.toLowerCase()
+        ) || d.title.toLowerCase().includes(specimen.commonName.toLowerCase())
+      );
+
+      let effectiveLit = res.parsedContext?.literatura;
+      if (customDocs.length > 0 && (!effectiveLit || effectiveLit.length === 0 || !effectiveLit.some(l => l.toLowerCase().includes(specimen.commonName.toLowerCase())))) {
+        effectiveLit = customDocs.map((d) => d.content);
+      }
+
       let responseText = '';
-      if (res.respuesta_experta) {
+      if (res.respuesta_experta && (!customDocs.length || res.respuesta_experta.toLowerCase().includes(specimen.commonName.toLowerCase()))) {
         responseText = res.respuesta_experta;
-      } else if (res.parsedContext?.literatura && res.parsedContext.literatura.length > 0) {
-        responseText = `${res.parsedContext.literatura.map((l) => `• ${l}`).join('\n\n')}\n\nRecomendación adaptada al estado del ejemplar (Prioridad de Riego: ${specimen.irrigationPriority}%, Riesgo Fit.: ${specimen.phytosanitaryRisk}%).`;
+      } else if (effectiveLit && effectiveLit.length > 0) {
+        responseText = `${effectiveLit.map((l) => `• ${l}`).join('\n\n')}\n\nRecomendación adaptada al estado de **${specimen.name}** (Prioridad de Riego: ${specimen.irrigationPriority}%, Riesgo Fit.: ${specimen.phytosanitaryRisk}%).`;
       } else {
         responseText = res.payload_llm || 'Consulta procesada con éxito.';
       }
@@ -396,7 +412,7 @@ export const SpecimenDetailModal: React.FC<SpecimenDetailModalProps> = ({
                   className="w-full bg-[#526b4a] hover:bg-[#43573c] text-white py-2.5 rounded-xl font-bold text-[12.5px] flex items-center justify-center gap-2 shadow-xs transition-all cursor-pointer"
                 >
                   <Sparkles className={`w-4 h-4 ${isEvaluating ? 'animate-spin' : ''}`} />
-                  <span>{isEvaluating ? 'Evaluando con scikit-fuzzy...' : '⚡ Evaluar Estado con SED (/api/evaluar)'}</span>
+                  <span>{isEvaluating ? 'Evaluando con scikit-fuzzy...' : ' Evaluar Estado con SED (/api/evaluar)'}</span>
                 </button>
               </div>
 
@@ -409,7 +425,7 @@ export const SpecimenDetailModal: React.FC<SpecimenDetailModalProps> = ({
                   className="w-full bg-[#eef7ea] hover:bg-[#dfead7] text-[#2b4122] py-2.5 px-3 rounded-xl font-bold text-[12.5px] flex items-center justify-center gap-2 border border-[#c6dec0] transition-all cursor-pointer"
                 >
                   <Droplets className="w-4 h-4 text-[#0284c7]" />
-                  <span>💧 Aplicar Riego de Recuperación (Resuelve Tarea)</span>
+                  <span> Aplicar Riego de Recuperación (Resuelve Tarea)</span>
                 </button>
               </div>
             </div>
@@ -457,7 +473,7 @@ export const SpecimenDetailModal: React.FC<SpecimenDetailModalProps> = ({
                   onClick={() => handleSendRAGQuery('¿Por qué tiene esta prioridad de riego? ¿Cuándo y cuánto regar?')}
                   className="text-[10px] bg-[#f0f5ec] hover:bg-[#e1ebd9] text-[#344d2b] px-2 py-1 rounded-lg border border-[#cddfc6] transition-colors cursor-pointer disabled:opacity-50"
                 >
-                  💧 Consulta de Riego
+                   Consulta de Riego
                 </button>
                 <button
                   type="button"
@@ -465,7 +481,7 @@ export const SpecimenDetailModal: React.FC<SpecimenDetailModalProps> = ({
                   onClick={() => handleSendRAGQuery('¿Qué plagas u hongos amenazan a esta planta y cómo prevenirlos?')}
                   className="text-[10px] bg-[#f0f5ec] hover:bg-[#e1ebd9] text-[#344d2b] px-2 py-1 rounded-lg border border-[#cddfc6] transition-colors cursor-pointer disabled:opacity-50"
                 >
-                  🛡️ Plagas y Sanidad
+                   Plagas y Sanidad
                 </button>
                 <button
                   type="button"
@@ -473,7 +489,7 @@ export const SpecimenDetailModal: React.FC<SpecimenDetailModalProps> = ({
                   onClick={() => handleSendRAGQuery('¿Cuáles son los requerimientos de suelo, sustrato y floración?')}
                   className="text-[10px] bg-[#f0f5ec] hover:bg-[#e1ebd9] text-[#344d2b] px-2 py-1 rounded-lg border border-[#cddfc6] transition-colors cursor-pointer disabled:opacity-50"
                 >
-                  🌱 Suelo y Floración
+                   Suelo y Floración
                 </button>
               </div>
 

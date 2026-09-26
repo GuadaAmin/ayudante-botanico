@@ -1,7 +1,8 @@
 import React from 'react';
 import { X, Droplets, ShieldAlert, Sparkles, CheckCircle2, BookOpen, AlertTriangle, ArrowRight } from 'lucide-react';
 import { AlertInfo, Specimen, SedRule, RagDocument } from '../types';
-import { SED_RULES, RAG_DOCUMENTS } from '../data/botanicalData';
+import { SED_RULES } from '../data/botanicalData';
+import { getAllRAGDocuments } from '../services/customBotanicalStorage';
 
 interface AlertDetailModalProps {
   alert: AlertInfo | null;
@@ -26,12 +27,14 @@ export const AlertDetailModal: React.FC<AlertDetailModalProps> = ({
   // Find associated rule and RAG docs
   const rule = SED_RULES.find((r) => r.code === alert.ruleTriggered) || SED_RULES[0];
 
-  // FILTRADO ESTRICTO: Buscar únicamente literatura correspondiente a esta especie
+  // FILTRADO ESTRICTO: Buscar únicamente literatura correspondiente a esta especie (incluye personalizadas)
   const specimenNameLower = specimen.name.toLowerCase();
   const commonNameLower = specimen.commonName.toLowerCase();
   const scientificNameLower = specimen.scientificName.toLowerCase();
 
-  const ragDocs = RAG_DOCUMENTS.filter((d) => {
+  const allDocs = getAllRAGDocuments();
+
+  const ragDocs = allDocs.filter((d) => {
     const titleLower = d.title.toLowerCase();
     const contentLower = d.content.toLowerCase();
     
@@ -53,7 +56,7 @@ export const AlertDetailModal: React.FC<AlertDetailModalProps> = ({
   // Fallback seguro: Si no hubiera específico, buscar sólo documentos generales sin nombre de otra especie
   const displayDocs = ragDocs.length > 0 
     ? ragDocs 
-    : RAG_DOCUMENTS.filter((d) => {
+    : allDocs.filter((d) => {
         const isGeneral = !d.title.includes(':') && !d.tags.some(t => ['Jacaranda', 'Ceiba', 'Lapacho'].includes(t));
         return isGeneral && (alert.type === 'irrigation' ? d.tags.includes('Riego') : d.tags.includes('Fitosanitario'));
       });

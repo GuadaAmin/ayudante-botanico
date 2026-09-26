@@ -11,7 +11,7 @@ export const Header: React.FC<HeaderProps> = ({
   onRefreshBackend
 }) => {
   return (
-    <header className="px-6 pt-5 pb-3 flex items-center justify-between border-b border-[#e2ebd9]/70 bg-white/40 backdrop-blur-xs">
+    <header className="px-6 pt-5 pb-3 flex items-center justify-between border-b border-[#e2ebd9]/70 bg-white/40 backdrop-blur-xs sm:rounded-t-3xl">
       {/* Brand Icon and Titles */}
       <div className="flex items-center gap-3">
         <div 

@@ -9,8 +9,12 @@ import { AlertDetailModal } from './components/AlertDetailModal';
 import { NewSpecimenModal } from './components/NewSpecimenModal';
 import { SpecimenDetailModal } from './components/SpecimenDetailModal';
 import { AuthScreen } from './components/AuthScreen';
-import { AlertInfo, CatalogSpecies, PlantStatus, Specimen } from './types';
+import { NewCustomSpeciesModal } from './components/NewCustomSpeciesModal';
+import { RagDocumentModal } from './components/RagDocumentModal';
+import { AlertInfo, CatalogSpecies, PlantStatus, Specimen, RagDocument } from './types';
+import { INITIAL_SPECIMENS } from './data/botanicalData';
 import { checkBackendHealth, apiClient } from './services/api';
+import { getAllCatalogSpecies, deleteCustomSpecies } from './services/customBotanicalStorage';
 import { LogOut } from 'lucide-react';
 
 export default function App() {
@@ -18,15 +22,24 @@ export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [currentUsername, setCurrentUsername] = useState<string | null>(null);
 
-  // Navigation: Abre directamente en el Chatbot SED como experiencia principal
+  // Navigation: Abre en el Dashboard o Chatbot
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
   const [plantadasFilter, setPlantadasFilter] = useState<'all' | PlantStatus>('all');
 
   // Backend Connectivity
   const [backendConnected, setBackendConnected] = useState<boolean | null>(null);
 
-  // Garden Data State: Inicializa vacío (sin valores precargados globales)
-  const [specimens, setSpecimens] = useState<Specimen[]>([]);
+  // Garden Data State: Inicializa con ejemplares para que nunca esté vacío
+  const [specimens, setSpecimens] = useState<Specimen[]>(() => {
+    try {
+      const saved = localStorage.getItem('botanico_specimens_v1');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return INITIAL_SPECIMENS;
+  });
 
   // Modals & Selected items
   const [selectedAlert, setSelectedAlert] = useState<{
@@ -37,7 +50,12 @@ export default function App() {
   const [selectedSpecimenForModal, setSelectedSpecimenForModal] = useState<Specimen | null>(null);
   const [selectedSpecimenForDiag, setSelectedSpecimenForDiag] = useState<Specimen | null>(null);
 
+  // Catálogo unificado (Base + Personalizadas fuera de catálogo)
+  const [catalogSpecies, setCatalogSpecies] = useState<CatalogSpecies[]>(() => getAllCatalogSpecies());
+
   const [isNewSpecimenModalOpen, setIsNewSpecimenModalOpen] = useState(false);
+  const [isCustomSpeciesModalOpen, setIsCustomSpeciesModalOpen] = useState(false);
+  const [ragModalData, setRagModalData] = useState<{ species: CatalogSpecies; ragDoc: RagDocument } | null>(null);
   const [preselectedSpecies, setPreselectedSpecies] = useState<CatalogSpecies | null>(null);
 
   // Quick feedback toast/notification
@@ -54,29 +72,44 @@ export default function App() {
   const fetchUserPlantas = async () => {
     try {
       const response = await apiClient.get('/api/plantas');
-      const backendPlantas = response.data.map((p: any) => ({
-        id: String(p.id),
-        name: p.alias,
-        scientificName: p.especie?.nombre_cientifico || 'Especie Registrada',
-        commonName: p.especie?.nombre_comun || p.alias,
-        family: p.especie?.familia || 'Desconocida',
-        location: p.ubicacion || 'Cantero Principal',
-        soilMoisture: p.ultima_telemetria?.humedad_sustrato ?? 45,
-        temperature: p.ultima_telemetria?.temperatura_ambiental ?? 24,
-        humidity: p.ultima_telemetria?.humedad_relativa ?? 50,
-        irrigationPriority: p.prioridad_riego_actual ?? 0,
-        phytosanitaryRisk: p.indice_riesgo_fitosanitario ?? 0,
-        status: p.prioridad_riego_actual > 65 ? 'critical' : p.indice_riesgo_fitosanitario > 75 ? 'attention' : 'stable',
-        lastWatered: 'Hace un tiempo',
-        imageUrl: p.especie?.imagen_url || 'https://images.unsplash.com/photo-1512428559087-560fa5ceab42?auto=format&fit=crop&q=80&w=600',
-        history: p.historial || [],
-        activeAlert: null
-      }));
-      setSpecimens(backendPlantas);
+      if (Array.isArray(response.data) && response.data.length > 0) {
+        const backendPlantas = response.data.map((p: any) => ({
+          id: String(p.id),
+          name: p.alias,
+          scientificName: p.especie?.nombre_cientifico || 'Especie Registrada',
+          commonName: p.especie?.nombre_comun || p.alias,
+          family: p.especie?.familia || 'Desconocida',
+          location: p.ubicacion || 'Cantero Principal',
+          soilMoisture: p.ultima_telemetria?.humedad_sustrato ?? 45,
+          temperature: p.ultima_telemetria?.temperatura_ambiental ?? 24,
+          humidity: p.ultima_telemetria?.humedad_relativa ?? 50,
+          irrigationPriority: p.prioridad_riego_actual ?? 0,
+          phytosanitaryRisk: p.indice_riesgo_fitosanitario ?? 0,
+          status: (p.prioridad_riego_actual > 65 ? 'critical' : p.indice_riesgo_fitosanitario > 75 ? 'attention' : 'stable') as PlantStatus,
+          lastWatered: 'Hace un tiempo',
+          imageUrl: p.especie?.imagen_url || 'https://images.unsplash.com/photo-1512428559087-560fa5ceab42?auto=format&fit=crop&q=80&w=600',
+          plantedDate: p.fecha_plantacion || new Date().toISOString().split('T')[0],
+          notes: p.notas_iniciales || 'Ejemplar sincronizado desde el backend',
+          history: p.historial || [],
+          activeAlert: null
+        }));
+        setSpecimens(backendPlantas);
+      }
     } catch (err) {
-      console.error('Error al obtener las plantas del usuario:', err);
+      console.warn('Backend sin plantas o en modo local, usando ejemplares base:', err);
     }
   };
+
+  // Sincronizar ejemplares con localStorage
+  useEffect(() => {
+    try {
+      if (specimens.length > 0) {
+        localStorage.setItem('botanico_specimens_v1', JSON.stringify(specimens));
+      }
+    } catch (e) {
+      console.error('Error guardando ejemplares en localStorage:', e);
+    }
+  }, [specimens]);
 
   // Verificar token inicial al montar la aplicación
   useEffect(() => {
@@ -308,22 +341,24 @@ export default function App() {
       fetchUserPlantas(); 
       showToast(`🌱 ¡${newSpecimen.name} incorporado exitosamente!`);
     } catch (err: any) {
-      console.error('Error al registrar planta:', err);
-      // Trasladar también el error del backend al Modal
-      throw new Error(err.response?.data?.detail || 'Error del servidor al persistir la planta.');
+      console.warn('Backend no disponible o sin autenticación remota. Guardando localmente:', err);
+      // Fallback local: guardar directamente en el jardín para modo libre
+      setSpecimens((prev) => [newSpecimen, ...prev]);
+      showToast(`🌱 ¡${newSpecimen.name} guardado en tu jardín local!`);
     }
   };
 
   const handleDeleteSpecimen = async (specimenId: string) => {
     try {
       await apiClient.delete(`/api/plantas/${specimenId}`);
-      setSelectedSpecimenForModal(null); // Cierra el modal
-      fetchUserPlantas(); // Refresca el estado global desde la base de datos
-      showToast('🗑️ Ejemplar eliminado de la base de datos.');
+      fetchUserPlantas();
     } catch (err: any) {
-      console.error('Error al eliminar:', err);
-      showToast('❌ Error de red al intentar eliminar el ejemplar.');
+      console.warn('Eliminación local (backend no disponible o sin auth):', err);
     }
+    // Siempre remover del estado local
+    setSpecimens((prev) => prev.filter((s) => s.id !== specimenId));
+    setSelectedSpecimenForModal(null);
+    showToast('🗑️ Ejemplar eliminado del jardín.');
   };
 
   const handleNavigateToPlantadasWithFilter = (filter: 'all' | PlantStatus = 'all') => {
@@ -339,6 +374,36 @@ export default function App() {
   const handlePlantFromCatalog = (species: CatalogSpecies) => {
     setPreselectedSpecies(species);
     setIsNewSpecimenModalOpen(true);
+  };
+
+  // Manejo de incorporación de especies personalizadas
+  const handleSpeciesAdded = async (species: CatalogSpecies, plantedSpecimen?: Specimen, ragDoc?: RagDocument) => {
+    // 1. Recargar lista completa de catálogo
+    setCatalogSpecies(getAllCatalogSpecies());
+
+    // 2. Si se plantó de forma inmediata, registrarlo
+    if (plantedSpecimen) {
+      try {
+        await handleAddSpecimen(plantedSpecimen);
+        showToast(` ¡${species.commonName} registrada en catálogo y plantada en el jardín!`);
+      } catch (e: any) {
+        // Fallback local si backend no responde
+        setSpecimens((prev) => [plantedSpecimen, ...prev]);
+        showToast(` ¡${species.commonName} agregada al catálogo y guardada en el jardín!`);
+      }
+    } else {
+      showToast(` ¡${species.commonName} agregada al catálogo y a la base RAG!`);
+    }
+  };
+
+  const handleDeleteCustomSpecies = (speciesId: string) => {
+    deleteCustomSpecies(speciesId);
+    setCatalogSpecies(getAllCatalogSpecies());
+    showToast('🗑️ Especie eliminada del catálogo personalizado');
+  };
+
+  const handleOpenRagModal = (species: CatalogSpecies, doc: RagDocument) => {
+    setRagModalData({ species, ragDoc: doc });
   };
 
   const activeAlertCount = specimens.filter((s) => !!s.activeAlert).length;
@@ -388,7 +453,7 @@ export default function App() {
       {/* Main Container: Diseño Web Responsivo y Amplio */}
       <main
         id="app-main-canvas"
-        className="w-full max-w-5xl bg-[#f8faf6] sm:rounded-3xl shadow-xl sm:border border-[#d9e5d2] min-h-[850px] flex flex-col overflow-hidden my-0 sm:my-1"
+        className="w-full max-w-5xl bg-[#f8faf6] sm:rounded-3xl shadow-xl sm:border border-[#d9e5d2] min-h-[850px] flex flex-col relative my-0 sm:my-1"
       >
         {/* Top Header */}
         <Header
@@ -397,7 +462,7 @@ export default function App() {
         />
 
         {/* Screen Content Area */}
-        <div className="flex-1 px-4 sm:px-6 pt-2 overflow-y-auto">
+        <div className="flex-1 px-4 sm:px-6 pt-2 pb-6">
           {activeTab === 'dashboard' && (
             <DashboardScreen
               specimens={specimens}
@@ -439,11 +504,17 @@ export default function App() {
           )}
 
           {activeTab === 'catalogo' && (
-            <CatalogScreen onSelectSpeciesToPlant={handlePlantFromCatalog} />
+            <CatalogScreen 
+              catalogSpecies={catalogSpecies}
+              onSelectSpeciesToPlant={handlePlantFromCatalog}
+              onOpenNewCustomSpeciesModal={() => setIsCustomSpeciesModalOpen(true)}
+              onOpenRagDocModal={handleOpenRagModal}
+              onDeleteCustomSpecies={handleDeleteCustomSpecies}
+            />
           )}
         </div>
 
-        {/* Bottom Navigation Bar */}
+        {/* Bottom Navigation Bar: Se mantiene fija y visible mientras se scrolea */}
         <Navbar
           activeTab={activeTab}
           onSelectTab={(tab) => {
@@ -467,12 +538,14 @@ export default function App() {
 
       <NewSpecimenModal
         isOpen={isNewSpecimenModalOpen}
+        catalogSpeciesList={catalogSpecies}
         preselectedSpecies={preselectedSpecies}
         onClose={() => {
           setIsNewSpecimenModalOpen(false);
           setPreselectedSpecies(null);
         }}
         onAddSpecimen={handleAddSpecimen}
+        onOpenCustomSpeciesModal={() => setIsCustomSpeciesModalOpen(true)}
       />
 
       <SpecimenDetailModal
@@ -480,7 +553,22 @@ export default function App() {
         onClose={() => setSelectedSpecimenForModal(null)}
         onWaterSpecimen={handleWaterSpecimen}
         onSpecimenEvaluated={handleSpecimenEvaluated}
-        onDeleteSpecimen={handleDeleteSpecimen} // NUEVA PROP
+        onDeleteSpecimen={handleDeleteSpecimen}
+      />
+
+      {/* Modal para Crear Nueva Especie Fuera de Catálogo */}
+      <NewCustomSpeciesModal
+        isOpen={isCustomSpeciesModalOpen}
+        onClose={() => setIsCustomSpeciesModalOpen(false)}
+        onSpeciesAdded={handleSpeciesAdded}
+      />
+
+      {/* Modal para Visualizar Ficha de Literatura RAG y Código ChromaDB */}
+      <RagDocumentModal
+        isOpen={!!ragModalData}
+        species={ragModalData?.species || null}
+        ragDoc={ragModalData?.ragDoc || null}
+        onClose={() => setRagModalData(null)}
       />
     </div>
   );

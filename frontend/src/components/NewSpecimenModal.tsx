@@ -5,25 +5,33 @@ import { CATALOG_SPECIES } from '../data/botanicalData';
 
 interface NewSpecimenModalProps {
   isOpen: boolean;
+  catalogSpeciesList?: CatalogSpecies[];
   preselectedSpecies?: CatalogSpecies | null;
   onClose: () => void;
   // Actualizado para requerir una promesa
   onAddSpecimen: (newSpecimen: Specimen) => Promise<void>;
+  onOpenCustomSpeciesModal?: () => void;
 }
 
 export const NewSpecimenModal: React.FC<NewSpecimenModalProps> = ({
   isOpen,
+  catalogSpeciesList,
   preselectedSpecies,
   onClose,
-  onAddSpecimen
+  onAddSpecimen,
+  onOpenCustomSpeciesModal
 }) => {
   if (!isOpen) return null;
 
+  const availableSpecies = catalogSpeciesList && catalogSpeciesList.length > 0 
+    ? catalogSpeciesList 
+    : CATALOG_SPECIES;
+
   const [selectedSpeciesId, setSelectedSpeciesId] = useState<string>(
-    preselectedSpecies?.id || CATALOG_SPECIES[0].id
+    preselectedSpecies?.id || availableSpecies[0]?.id || CATALOG_SPECIES[0].id
   );
   const selectedSpecies =
-    CATALOG_SPECIES.find((s) => s.id === selectedSpeciesId) || CATALOG_SPECIES[0];
+    availableSpecies.find((s) => s.id === selectedSpeciesId) || availableSpecies[0] || CATALOG_SPECIES[0];
 
   const [customName, setCustomName] = useState(`${selectedSpecies.commonName}`);
   const [location, setLocation] = useState('');
@@ -36,7 +44,7 @@ export const NewSpecimenModal: React.FC<NewSpecimenModalProps> = ({
 
   const handleSpeciesChange = (speciesId: string) => {
     setSelectedSpeciesId(speciesId);
-    const sp = CATALOG_SPECIES.find((s) => s.id === speciesId);
+    const sp = availableSpecies.find((s) => s.id === speciesId);
     if (sp) {
       setCustomName(`${sp.commonName}`);
     }
@@ -138,12 +146,30 @@ export const NewSpecimenModal: React.FC<NewSpecimenModalProps> = ({
               onChange={(e) => handleSpeciesChange(e.target.value)}
               className="w-full bg-[#f6f9f3] text-[#22331d] text-[13px] font-medium py-2 px-3 rounded-xl border border-[#cad7c1] focus:outline-none focus:border-[#526b4a]"
             >
-              {CATALOG_SPECIES.map((s) => (
+              {availableSpecies.map((s) => (
                 <option key={s.id} value={s.id}>
-                  {s.commonName} ({s.scientificName})
+                  {s.commonName} ({s.scientificName}) {s.id.startsWith('custom-') ? '' : ''}
                 </option>
               ))}
             </select>
+
+            {/* Prompt to create out of catalog */}
+            <div className="flex items-center justify-between mt-1.5 text-[11px] px-1">
+              <span className="text-[#657d60]">¿No encuentras tu planta?</span>
+              {onOpenCustomSpeciesModal && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    onOpenCustomSpeciesModal();
+                  }}
+                  className="text-emerald-700 font-bold hover:text-emerald-900 hover:underline inline-flex items-center gap-1 cursor-pointer"
+                >
+                  <Sparkles className="w-3 h-3 text-emerald-600" />
+                  <span>+ Crear especie fuera de catálogo</span>
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Species photo preview banner */}
@@ -155,7 +181,14 @@ export const NewSpecimenModal: React.FC<NewSpecimenModalProps> = ({
               className="w-14 h-14 rounded-xl object-cover shrink-0"
             />
             <div className="min-w-0 text-[12px]">
-              <p className="font-bold text-[#23351d]">{selectedSpecies.scientificName}</p>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <p className="font-bold text-[#23351d]">{selectedSpecies.scientificName}</p>
+                {selectedSpecies.id.startsWith('custom-') && (
+                  <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.2 rounded-md">
+                    Personalizada
+                  </span>
+                )}
+              </div>
               <p className="text-[#597151]">{selectedSpecies.family} · Riego {selectedSpecies.wateringNeed}</p>
             </div>
           </div>
@@ -209,7 +242,7 @@ export const NewSpecimenModal: React.FC<NewSpecimenModalProps> = ({
               className="w-full accent-[#526b4a]"
             />
             <span className="text-[11px] text-[#697f62]">
-              {soilMoisture < 25 ? '⚠️ Estado bajo: activará alerta de riego preventiva' : '✅ Nivel óptimo'}
+              {soilMoisture < 25 ? ' Estado bajo: activará alerta de riego preventiva' : ' Nivel óptimo'}
             </span>
           </div>
 

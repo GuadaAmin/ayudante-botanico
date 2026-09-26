@@ -29,6 +29,7 @@ import {
   AsesorResponse
 } from '../services/api';
 import ReactMarkdown from 'react-markdown';
+import { getAllRAGDocuments } from '../services/customBotanicalStorage';
 
 interface SedRagScreenProps {
   specimens: Specimen[];
@@ -127,45 +128,45 @@ export const SedRagScreen: React.FC<SedRagScreenProps> = ({
     const common = (sp?.commonName || sp?.name || '').toLowerCase();
     if (common.includes('lapacho')) {
       return [
-        { label: '🌸 Estimular Floración', query: `¿Cómo estimular la floración del ${sp.name} y cuándo entra en reposo hídrico?` },
-        { label: '💧 Déficit Hídrico', query: `¿Qué efectos produce el déficit hídrico en ${sp.name} y cuánto regar?` },
-        { label: '✂️ Poda y Cuidados', query: `¿En qué época se poda el ${sp.name} y cómo proteger sus ramas?` }
+        { label: ' Estimular Floración', query: `¿Cómo estimular la floración del ${sp.name} y cuándo entra en reposo hídrico?` },
+        { label: ' Déficit Hídrico', query: `¿Qué efectos produce el déficit hídrico en ${sp.name} y cuánto regar?` },
+        { label: ' Poda y Cuidados', query: `¿En qué época se poda el ${sp.name} y cómo proteger sus ramas?` }
       ];
     } else if (common.includes('jacarand')) {
       return [
-        { label: '💧 Riego y Hongos', query: `¿Por qué el exceso de agua pudre las raíces del ${sp.name} por Phytophthora?` },
-        { label: '🐛 Arañuela y Plagas', query: `¿Qué plagas atacan al ${sp.name} con calor y baja humedad?` },
-        { label: '🌱 Suelo y Drenaje', query: `¿Qué tipo de suelo requiere el ${sp.name} para un crecimiento óptimo?` }
+        { label: ' Riego y Hongos', query: `¿Por qué el exceso de agua pudre las raíces del ${sp.name} por Phytophthora?` },
+        { label: ' Arañuela y Plagas', query: `¿Qué plagas atacan al ${sp.name} con calor y baja humedad?` },
+        { label: ' Suelo y Drenaje', query: `¿Qué tipo de suelo requiere el ${sp.name} para un crecimiento óptimo?` }
       ];
     } else if (common.includes('santa rita') || common.includes('buganvilla')) {
       return [
-        { label: '🌸 ¿Por qué no florece?', query: `¿Por qué la ${sp.name} no florece y cómo influye el exceso de agua?` },
-        { label: '🛡️ Cochinillas y Plagas', query: `¿Cómo tratar cochinillas algodonosas en ${sp.name}?` },
-        { label: '☀️ Insolación y Poda', query: `¿Cuánta insolación necesita la ${sp.name} y cómo guiarla en pérgola?` }
+        { label: ' ¿Por qué no florece?', query: `¿Por qué la ${sp.name} no florece y cómo influye el exceso de agua?` },
+        { label: ' Cochinillas y Plagas', query: `¿Cómo tratar cochinillas algodonosas en ${sp.name}?` },
+        { label: ' Insolación y Poda', query: `¿Cuánta insolación necesita la ${sp.name} y cómo guiarla en pérgola?` }
       ];
     } else if (common.includes('ceibo')) {
       return [
-        { label: '🌊 Suelos Inundados', query: `¿El ${sp.name} tolera suelos anegados y cómo responde al exceso hídrico?` },
-        { label: '❄️ Protección de Heladas', query: `¿Qué temperatura mínima soporta el ${sp.name} y cómo protegerlo de heladas?` },
-        { label: '🌸 Floración Carmesí', query: `¿Cuándo florece el ${sp.name} y qué cuidados fitosanitarios requiere?` }
+        { label: ' Suelos Inundados', query: `¿El ${sp.name} tolera suelos anegados y cómo responde al exceso hídrico?` },
+        { label: ' Protección de Heladas', query: `¿Qué temperatura mínima soporta el ${sp.name} y cómo protegerlo de heladas?` },
+        { label: ' Floración Carmesí', query: `¿Cuándo florece el ${sp.name} y qué cuidados fitosanitarios requiere?` }
       ];
     } else if (common.includes('ceiba') || common.includes('palo borracho')) {
       return [
-        { label: '💧 Reserva del Tronco', query: `¿Cómo funciona la reserva hídrica del tronco de ${sp.name} ante sequía?` },
-        { label: '🍄 Humedad y Antracnosis', query: `¿Qué hongos proliferan en ${sp.name} si la humedad relativa supera el 80%?` },
-        { label: '☀️ Exposición Solar', query: `¿Qué cuidados de suelo y sol requiere ${sp.name}?` }
+        { label: ' Reserva del Tronco', query: `¿Cómo funciona la reserva hídrica del tronco de ${sp.name} ante sequía?` },
+        { label: ' Humedad y Antracnosis', query: `¿Qué hongos proliferan en ${sp.name} si la humedad relativa supera el 80%?` },
+        { label: ' Exposición Solar', query: `¿Qué cuidados de suelo y sol requiere ${sp.name}?` }
       ];
     } else if (common.includes('jazm')) {
       return [
-        { label: '🍃 Hojas Amarillas', query: `¿Por qué amarillean las hojas de ${sp.name} y cómo aplicar quelatos de hierro?` },
-        { label: '🍄 Hongos por Humedad', query: `¿Qué hongos proliferan en ${sp.name} con alta humedad y calor?` },
-        { label: '🌸 Aroma Nocturno', query: `¿Qué sustrato necesita ${sp.name} para potenciar su aroma y floración?` }
+        { label: ' Hojas Amarillas', query: `¿Por qué amarillean las hojas de ${sp.name} y cómo aplicar quelatos de hierro?` },
+        { label: ' Hongos por Humedad', query: `¿Qué hongos proliferan en ${sp.name} con alta humedad y calor?` },
+        { label: ' Aroma Nocturno', query: `¿Qué sustrato necesita ${sp.name} para potenciar su aroma y floración?` }
       ];
     } else {
       return [
-        { label: `💧 Riego para ${sp.name}`, query: `¿Cuál es el régimen de riego recomendado para ${sp.name} según el SED?` },
-        { label: `🛡️ Riesgos Fitosanitarios`, query: `¿Qué plagas u hongos pueden afectar a ${sp.name} con los valores actuales?` },
-        { label: `🌱 Cuidados de ${sp.name}`, query: `¿Qué pautas de abonado y poda recomiendas para ${sp.name}?` }
+        { label: ` Riego para ${sp.name}`, query: `¿Cuál es el régimen de riego recomendado para ${sp.name} según el SED?` },
+        { label: ` Riesgos Fitosanitarios`, query: `¿Qué plagas u hongos pueden afectar a ${sp.name} con los valores actuales?` },
+        { label: ` Cuidados de ${sp.name}`, query: `¿Qué pautas de abonado y poda recomiendas para ${sp.name}?` }
       ];
     }
   };
@@ -265,6 +266,21 @@ export const SedRagScreen: React.FC<SedRagScreenProps> = ({
       // 3. Determinar qué reglas de las 20 Mamdani se dispararon
       const reglasFired = determinarReglasDisparadas(hvs, ta, hr);
 
+      // Verificar literatura RAG personalizada para esta planta
+      const allRAG = getAllRAGDocuments();
+      const customDocs = allRAG.filter((d) =>
+        d.tags.some(
+          (t) =>
+            t.toLowerCase() === specimen.commonName.toLowerCase() ||
+            t.toLowerCase() === specimen.scientificName.toLowerCase()
+        ) || d.title.toLowerCase().includes(specimen.commonName.toLowerCase())
+      );
+
+      let effectiveLit = resRag.parsedContext?.literatura;
+      if (customDocs.length > 0 && (!effectiveLit || effectiveLit.length === 0 || !effectiveLit.some(l => l.toLowerCase().includes(specimen.commonName.toLowerCase())))) {
+        effectiveLit = customDocs.map((d) => d.content);
+      }
+
       const introText = resRag.respuesta_experta || 
         `He evaluado la telemetría de **${specimen.name}** utilizando el **Motor de Inferencia Difusa (Mamdani)** y la base de conocimiento de ChromaDB.`;
 
@@ -275,7 +291,7 @@ export const SedRagScreen: React.FC<SedRagScreenProps> = ({
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         rawPayload: resRag.payload_llm,
         sedContext: resRag.parsedContext?.estado_sed,
-        retrievedDocs: resRag.parsedContext?.literatura,
+        retrievedDocs: effectiveLit,
         source: resSed.fuente,
         diagnostic: {
           hvs,
@@ -286,7 +302,7 @@ export const SedRagScreen: React.FC<SedRagScreenProps> = ({
           reglasActivadas: reglasFired,
           specimenId: specimen.id,
           specimenName: specimen.name,
-          literaturaRecuperada: resRag.parsedContext?.literatura,
+          literaturaRecuperada: effectiveLit,
           isWatered: false
         }
       };
@@ -384,11 +400,28 @@ export const SedRagScreen: React.FC<SedRagScreenProps> = ({
         riesgo_fitosanitario: currentSp?.phytosanitaryRisk ?? 0,
       });
 
+      // Verificar si hay literatura RAG personalizada para esta planta actual
+      const allRAG = getAllRAGDocuments();
+      const customDocs = allRAG.filter((d) =>
+        currentSp && (
+          d.tags.some(
+            (t) =>
+              t.toLowerCase() === currentSp.commonName.toLowerCase() ||
+              t.toLowerCase() === currentSp.scientificName.toLowerCase()
+          ) || d.title.toLowerCase().includes(currentSp.commonName.toLowerCase())
+        )
+      );
+
+      let effectiveLit = response.parsedContext?.literatura;
+      if (customDocs.length > 0 && (!effectiveLit || effectiveLit.length === 0 || !effectiveLit.some(l => l.toLowerCase().includes(currentSp?.commonName.toLowerCase())))) {
+        effectiveLit = customDocs.map((d) => d.content);
+      }
+
       let synthesizedAnswer = '';
-      if (response.respuesta_experta) {
+      if (response.respuesta_experta && (!customDocs.length || response.respuesta_experta.toLowerCase().includes(currentSp?.commonName.toLowerCase()))) {
         synthesizedAnswer = response.respuesta_experta;
-      } else if (response.parsedContext?.literatura && response.parsedContext.literatura.length > 0) {
-        synthesizedAnswer = `Según los manuales botánicos de **${currentSp.name}** recuperados en ChromaDB:\n\n${response.parsedContext.literatura.map((lit) => `• "${lit}"`).join('\n\n')}\n\n**Recomendación del Asesor:** Con Prioridad de Riego de ${currentSp.irrigationPriority}% y Riesgo Fitosanitario de ${currentSp.phytosanitaryRisk}%, se aconseja adaptar las tareas a las pautas de las reglas Mamdani.`;
+      } else if (effectiveLit && effectiveLit.length > 0) {
+        synthesizedAnswer = `Según los manuales botánicos de **${currentSp?.name || 'la especie'}** recuperados en la base de conocimiento:\n\n${effectiveLit.map((lit) => `• "${lit}"`).join('\n\n')}\n\n**Recomendación del Asesor:** Con Prioridad de Riego de ${currentSp?.irrigationPriority ?? 0}% y Riesgo Fitosanitario de ${currentSp?.phytosanitaryRisk ?? 0}%, se aconseja adaptar las tareas a las pautas de las reglas Mamdani y los requerimientos de la especie.`;
       } else {
         synthesizedAnswer = response.payload_llm;
       }
@@ -400,7 +433,7 @@ export const SedRagScreen: React.FC<SedRagScreenProps> = ({
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         rawPayload: response.payload_llm,
         sedContext: response.parsedContext?.estado_sed,
-        retrievedDocs: response.parsedContext?.literatura,
+        retrievedDocs: effectiveLit,
         source: response.fuente,
       };
 
@@ -572,13 +605,13 @@ export const SedRagScreen: React.FC<SedRagScreenProps> = ({
 
                 <div className="flex items-center gap-2 flex-wrap shrink-0">
                   <span className="bg-white text-[11px] font-semibold px-2 py-0.5 rounded-lg border border-[#d8e4d2] text-[#334d2a]">
-                    💧 Suelo: <strong>{currentSp.soilMoisture}%</strong>
+                     Suelo: <strong>{currentSp.soilMoisture}%</strong>
                   </span>
                   <span className="bg-white text-[11px] font-semibold px-2 py-0.5 rounded-lg border border-[#d8e4d2] text-[#334d2a]">
-                    🌡️ <strong>{currentSp.temperature}°C</strong>
+                     <strong>{currentSp.temperature}°C</strong>
                   </span>
                   <span className="bg-white text-[11px] font-semibold px-2 py-0.5 rounded-lg border border-[#d8e4d2] text-[#334d2a]">
-                    💨 HR: <strong>{currentSp.humidity}%</strong>
+                     HR: <strong>{currentSp.humidity}%</strong>
                   </span>
                   <button
                     onClick={() => setShowCustomModal(true)}
@@ -612,7 +645,7 @@ export const SedRagScreen: React.FC<SedRagScreenProps> = ({
             {/* Chips de Diagnóstico Rápido e Inmediato */}
             <div className="pt-2 border-t border-[#edf3e8]">
               <span className="text-[11px] font-bold uppercase tracking-wider text-[#697d62] block mb-1.5">
-                ⚡ Pruebas con Reglas de Producción Mamdani:
+                 Pruebas con Reglas de Producción Mamdani:
               </span>
               <div className="flex flex-wrap gap-1.5">
                 <button
@@ -679,7 +712,7 @@ export const SedRagScreen: React.FC<SedRagScreenProps> = ({
                   disabled={isAskingRAG}
                   className="text-[11px] font-semibold bg-[#f0f6ec] hover:bg-[#e2edd9] text-[#2c4424] px-2.5 py-1 rounded-full border border-[#d2dec9] flex items-center gap-1 transition-all cursor-pointer"
                 >
-                  <span>🌿 Diagnosticar {currentSp.name}</span>
+                  <span> Diagnosticar {currentSp.name}</span>
                 </button>
 
                 <button
@@ -687,7 +720,7 @@ export const SedRagScreen: React.FC<SedRagScreenProps> = ({
                   disabled={isAskingRAG}
                   className="text-[11px] font-semibold bg-white hover:bg-[#f6f9f3] text-[#4d6643] px-2.5 py-1 rounded-full border border-[#d4e2cd] transition-all cursor-pointer"
                 >
-                  📋 Ver 20 Reglas SED
+                   Ver 20 Reglas SED
                 </button>
               </div>
             </div>
@@ -757,10 +790,10 @@ export const SedRagScreen: React.FC<SedRagScreenProps> = ({
                               : 'bg-[#ecfdf5] text-[#047857]'
                           }`}>
                             {diag.prioridadRiego > 65
-                              ? '🚨 Prioridad de Riego Crítica'
+                              ? ' Prioridad de Riego Crítica'
                               : diag.riesgoFitosanitario > 60
-                              ? '⚠️ Alerta Fitosanitaria'
-                              : '✅ Condición Estable'}
+                              ? ' Alerta Fitosanitaria'
+                              : ' Condición Estable'}
                           </span>
                         </div>
 
@@ -845,7 +878,7 @@ export const SedRagScreen: React.FC<SedRagScreenProps> = ({
                                   {regla.antecedent} ➔ {regla.consequent}
                                 </p>
                                 <p className="text-[11px] text-[#2c4025]">
-                                  💡 <strong>Acción recomendada:</strong> {regla.recommendedAction}
+                                   <strong>Acción recomendada:</strong> {regla.recommendedAction}
                                 </p>
                               </div>
                             ))}

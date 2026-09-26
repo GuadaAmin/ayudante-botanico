@@ -6,6 +6,7 @@
  */
 
 import axios from 'axios';
+import { getAllRAGDocuments } from './customBotanicalStorage';
 
 // Configuración de URL: Usa la variable de entorno de Vite o apunta por defecto al backend local/producción
 const API_URL = ((import.meta as any).env?.VITE_API_URL as string) || 'http://localhost:8000';
@@ -282,16 +283,44 @@ function calcularFallbackSED(hvs: number, ta: number, hr: number): DiagnosticoSE
 
 /**
  * Genera el System Prompt contextualizado de respaldo cuando el backend no está disponible
+ * o para consultas sobre especies personalizadas
  */
 function generarPayloadFallback(consulta: ConsultaInput): string {
+  const allDocs = getAllRAGDocuments();
+  const queryLower = (consulta.mensaje || '').toLowerCase();
+
+  // Buscar coincidencia en tags, títulos o contenidos
+  let matchedDocs = allDocs.filter((doc) => {
+    return (
+      doc.tags.some((t) => queryLower.includes(t.toLowerCase())) ||
+      doc.title.toLowerCase().includes(queryLower) ||
+      (doc.content && queryLower.length > 3 && doc.content.toLowerCase().includes(queryLower))
+    );
+  });
+
+  if (matchedDocs.length === 0) {
+    // Si no hay por coincidencia directa de palabras, tomar documentos relevantes a riego/fitosanitario
+    matchedDocs = allDocs.filter((d) => 
+      (consulta.prioridad_riego && consulta.prioridad_riego > 60 && d.tags.includes('Riego')) ||
+      (consulta.riesgo_fitosanitario && consulta.riesgo_fitosanitario > 60 && d.tags.includes('Fitosanitario'))
+    ).slice(0, 2);
+  }
+
+  if (matchedDocs.length === 0) {
+    matchedDocs = allDocs.slice(0, 2);
+  }
+
+  const literatureText = matchedDocs
+    .map((d) => `- ${d.content}`)
+    .join('\n');
+
   return `Eres un experto agronómico evaluando un ejemplar específico.
 
 Contexto Transaccional del Ejemplar (SED):
 Prioridad de riego actual: ${consulta.prioridad_riego || 45}%. Riesgo fitosanitario: ${consulta.riesgo_fitosanitario || 20}%.
 
 Literatura Botánica Recuperada (Base de Conocimiento):
-- El Jacarandá requiere suelos bien drenados. El exceso de agua provoca hipoxia y posterior pudrición radicular por Phytophthora.
-- Para mitigar el estrés térmico severo, se recomienda aplicar riegos profundos al atardecer y proporcionar malla sombra.
+${literatureText}
 
 Instrucción:
 Responde a la consulta del usuario fundamentando tu consejo estrictamente en la literatura botánica recuperada, pero adaptando la urgencia según el contexto transaccional del SED.`;

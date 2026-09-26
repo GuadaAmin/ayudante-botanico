@@ -300,7 +300,7 @@ export const CATALOG_SPECIES: CatalogSpecies[] = [
     floweringSeason: 'Primavera hasta finales de verano',
     optimalSoil: 'Fértil, permeable y rico en materia orgánica',
     maxHeight: '2 a 5 metros',
-    imageUrl: 'https://images.unsplash.com/photo-1453396450673-3fe83d2db2c4?auto=format&fit=crop&w=800&q=80',
+    imageUrl: 'https://media.admagazine.com/photos/644b88b2154ed7b822040126/master/pass/plantas-con-flores.jpg',
     pestVulnerability: 'Pulgones, mosca blanca y cochinilla algodonosa.',
     phytosanitaryNotes: 'Sensible al frío por debajo de 5°C. El estrés hídrico provoca el aborto prematuro de botones florales.'
   },
