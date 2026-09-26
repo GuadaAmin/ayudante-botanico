@@ -1,12 +1,15 @@
-# Entorno virtual y dependencias
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Python & Backend
 venv/
+env/
 __pycache__/
-
-# Base de datos
+*.pyc
 botanico.db
+botanico.db.bak
 
-# Base de datos vectorial (Binarios que se regeneran localmente)
-botanico_vectores/
-
-# Variables de entorno
-.env
+# ChromaDB Vector Store 
+chroma_data/
+.chroma/
