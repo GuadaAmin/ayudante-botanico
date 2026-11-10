@@ -76,7 +76,7 @@ export const CatalogScreen: React.FC<CatalogScreenProps> = ({
         <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="space-y-1">
             <span className="text-[10.5px] font-bold uppercase tracking-widest bg-white/20 backdrop-blur-md px-2.5 py-0.5 rounded-full text-emerald-100 border border-white/10 inline-flex items-center gap-1.5">
-              <span>🌸 Catálogo de Flora Regional y Jardinería</span>
+              <span>Catálogo de Flora Regional y Jardinería</span>
             </span>
             <h2 className="font-botanical text-[24px] sm:text-[26px] font-bold text-white leading-tight drop-shadow-sm">
               Especies Florales y Arbóreas
@@ -228,7 +228,7 @@ export const CatalogScreen: React.FC<CatalogScreenProps> = ({
                       <span>Luz: <strong className="font-bold">{species.sunlight}</strong></span>
                     </div>
                     <div className="col-span-2 text-[11px] text-[#556c4e]">
-                      🌸 Floración: <span className="font-medium text-[#23351d]">{species.floweringSeason}</span>
+                      Floración: <span className="font-medium text-[#23351d]">{species.floweringSeason}</span>
                     </div>
                   </div>
 

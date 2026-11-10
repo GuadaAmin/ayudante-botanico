@@ -11,6 +11,7 @@ import { SpecimenDetailModal } from './components/SpecimenDetailModal';
 import { AuthScreen } from './components/AuthScreen';
 import { NewCustomSpeciesModal } from './components/NewCustomSpeciesModal';
 import { RagDocumentModal } from './components/RagDocumentModal';
+import { BackgroundFoliage } from './components/BackgroundFoliage';
 import { AlertInfo, CatalogSpecies, PlantStatus, Specimen, RagDocument } from './types';
 import { INITIAL_SPECIMENS } from './data/botanicalData';
 import { checkBackendHealth, apiClient } from './services/api';
@@ -18,12 +19,18 @@ import { getAllCatalogSpecies, deleteCustomSpecies } from './services/customBota
 import { LogOut } from 'lucide-react';
 
 export default function App() {
-  // Estado de Autenticación Multi-tenancy
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
-  const [currentUsername, setCurrentUsername] = useState<string | null>(null);
+  // Estado de Autenticación Multi-tenancy (por defecto activo para acceso inmediato)
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(true);
+  const [currentUsername, setCurrentUsername] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem('usuario_activo') || 'Invitado';
+    } catch {
+      return 'Invitado';
+    }
+  });
 
-  // Navigation: Abre en el Dashboard o Chatbot
-  const [activeTab, setActiveTab] = useState<TabType>('dashboard');
+  // Navigation: Abre por defecto en el Chatbot SED
+  const [activeTab, setActiveTab] = useState<TabType>('asesor');
   const [plantadasFilter, setPlantadasFilter] = useState<'all' | PlantStatus>('all');
 
   // Backend Connectivity
@@ -130,7 +137,9 @@ export default function App() {
           activeAlert: currentAlert // Ko'ápe oñemoĩ pe alerta teete
         };
       });
-      setSpecimens(backendPlantas);
+      if (backendPlantas && backendPlantas.length > 0) {
+        setSpecimens(backendPlantas);
+      }
     } catch (err) {
       console.error('Error al obtener las plantas del usuario:', err);
     }
@@ -180,9 +189,9 @@ export default function App() {
     const health = await checkBackendHealth();
     setBackendConnected(health.online);
     if (health.online) {
-      showToast('🟢 Conectado al backend FastAPI (ayudante-botanico en puerto 8000)');
+      showToast('Conectado al backend FastAPI (ayudante-botanico en puerto 8000)');
     } else {
-      showToast('🟡 Backend no detectado en puerto 8000. Operando en modo local');
+      showToast('Backend no detectado en puerto 8000. Operando en modo local');
     }
   };
 
@@ -197,7 +206,7 @@ export default function App() {
     setIsAuthenticated(true);
     setCurrentUsername(username);
     fetchUserPlantas();
-    showToast(`👋 ¡Bienvenido de nuevo, ${username}!`);
+    showToast(`¡Bienvenido de nuevo, ${username}!`);
   };
 
   const handleLogout = () => {
@@ -205,7 +214,7 @@ export default function App() {
     setIsAuthenticated(false);
     setCurrentUsername(null);
     setSpecimens([]);
-    showToast('🔒 Sesión cerrada correctamente');
+    showToast('Sesión cerrada correctamente');
   };
 
   // Actualizar estado del ejemplar cuando se ejecuta el diagnóstico SED
@@ -319,7 +328,7 @@ export default function App() {
     );
 
     const targetSpecimen = specimens.find((s) => s.id === specimenId);
-    showToast(`💧 Riego aplicado exitosamente a ${targetSpecimen?.name || 'el ejemplar'}`);
+    showToast(`Riego aplicado exitosamente a ${targetSpecimen?.name || 'el ejemplar'}`);
   };
 
   const handleResolvePhyto = (specimenId: string) => {
@@ -351,7 +360,7 @@ export default function App() {
       })
     );
 
-    showToast('🌿 Tratamiento fitosanitario registrado y alerta resuelta');
+    showToast('Tratamiento fitosanitario registrado y alerta resuelta');
   };
 
   const handleAddSpecimen = async (newSpecimen: Specimen) => {
@@ -375,12 +384,12 @@ export default function App() {
         notas_iniciales: newSpecimen.notes || ''
       });
       fetchUserPlantas(); 
-      showToast(`🌱 ¡${newSpecimen.name} incorporado exitosamente!`);
+      showToast(`¡${newSpecimen.name} incorporado exitosamente!`);
     } catch (err: any) {
       console.warn('Backend no disponible o sin autenticación remota. Guardando localmente:', err);
       // Fallback local: guardar directamente en el jardín para modo libre
       setSpecimens((prev) => [newSpecimen, ...prev]);
-      showToast(`🌱 ¡${newSpecimen.name} guardado en tu jardín local!`);
+      showToast(`¡${newSpecimen.name} guardado en tu jardín local!`);
     }
   };
 
@@ -394,7 +403,7 @@ export default function App() {
     // Siempre remover del estado local
     setSpecimens((prev) => prev.filter((s) => s.id !== specimenId));
     setSelectedSpecimenForModal(null);
-    showToast('🗑️ Ejemplar eliminado del jardín.');
+    showToast('Ejemplar eliminado del jardín.');
   };
 
   const handleNavigateToPlantadasWithFilter = (filter: 'all' | PlantStatus = 'all') => {
@@ -435,7 +444,7 @@ export default function App() {
   const handleDeleteCustomSpecies = (speciesId: string) => {
     deleteCustomSpecies(speciesId);
     setCatalogSpecies(getAllCatalogSpecies());
-    showToast('🗑️ Especie eliminada del catálogo personalizado');
+    showToast('Especie eliminada del catálogo personalizado.');
   };
 
   const handleOpenRagModal = (species: CatalogSpecies, doc: RagDocument) => {
@@ -447,20 +456,25 @@ export default function App() {
   // SI EL USUARIO NO ESTÁ AUTENTICADO: Renderiza exclusivamente la pantalla de Login/Registro
   if (!isAuthenticated) {
     return (
-      <>
+      <div className="relative min-h-screen bg-[#f1f6ee] overflow-hidden">
+        <BackgroundFoliage />
         {toastMessage && (
           <div className="fixed top-5 z-60 bg-[#22331d] text-white px-4 py-2.5 rounded-2xl shadow-xl text-[12.5px] font-medium flex items-center gap-2 border border-[#3e5635] animate-fadeIn">
             <span>{toastMessage}</span>
           </div>
         )}
-        <AuthScreen onLoginSuccess={handleLoginSuccess} />
-      </>
+        <div className="relative z-10">
+          <AuthScreen onLoginSuccess={handleLoginSuccess} />
+        </div>
+      </div>
     );
   }
 
   // SI ESTÁ AUTENTICADO: Renderiza el sistema completo con barra de sesión
   return (
-    <div className="min-h-screen bg-[#e7eee1] text-[#22331d] flex flex-col items-center justify-start sm:py-6 sm:px-4 selection:bg-[#c6dec0]">
+    <div className="min-h-screen bg-[#f5f8f3] text-[#22331d] flex flex-col items-center justify-start sm:py-6 sm:px-4 selection:bg-[#c6dec0] relative overflow-x-hidden">
+      {/* Capa de Hojas Flotantes de Fondo Animadas */}
+      <BackgroundFoliage />
       {/* Toast Notification */}
       {toastMessage && (
         <div 
@@ -489,7 +503,7 @@ export default function App() {
       {/* Main Container: Diseño Web Responsivo y Amplio */}
       <main
         id="app-main-canvas"
-        className="w-full max-w-5xl bg-[#f8faf6] sm:rounded-3xl shadow-xl sm:border border-[#d9e5d2] min-h-[850px] flex flex-col relative my-0 sm:my-1"
+        className="w-full max-w-5xl bg-white sm:rounded-3xl shadow-xl sm:border border-[#d9e5d2] min-h-[850px] flex flex-col relative my-0 sm:my-1 z-10 pb-28 sm:pb-24"
       >
         {/* Top Header */}
         <Header

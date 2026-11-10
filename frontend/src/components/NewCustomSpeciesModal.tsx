@@ -308,7 +308,7 @@ export const NewCustomSpeciesModal: React.FC<NewCustomSpeciesModalProps> = ({
                 onClick={() => applyPreset(p)}
                 className="text-[11px] bg-white hover:bg-[#eef5e9] text-[#2d4224] px-2.5 py-1 rounded-xl border border-[#cad7c1] transition-all whitespace-nowrap shadow-2xs flex items-center gap-1 cursor-pointer"
               >
-                <span>🌿</span>
+                <Leaf className="w-3 h-3 text-emerald-600" />
                 <span>{p.commonName?.split('/')[0]}</span>
               </button>
             ))}

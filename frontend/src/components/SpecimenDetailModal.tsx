@@ -313,7 +313,7 @@ export const SpecimenDetailModal: React.FC<SpecimenDetailModalProps> = ({
                     {specimen.irrigationPriority}%
                   </span>
                   <span className="text-[10.5px] text-[#6d8265]">
-                    {specimen.irrigationPriority > 65 ? '⚠ Tarea pendiente (>65%)' : '✓ Nivel adecuado'}
+                    {specimen.irrigationPriority > 65 ? 'Tarea pendiente (>65%)' : 'Nivel adecuado'}
                   </span>
                 </div>
 
@@ -327,7 +327,7 @@ export const SpecimenDetailModal: React.FC<SpecimenDetailModalProps> = ({
                     {specimen.phytosanitaryRisk}%
                   </span>
                   <span className="text-[10.5px] text-[#6d8265]">
-                    {specimen.phytosanitaryRisk > 75 ? '⚠ Alerta crítica (>75%)' : '✓ Riesgo contenido'}
+                    {specimen.phytosanitaryRisk > 75 ? 'Alerta crítica (>75%)' : 'Riesgo contenido'}
                   </span>
                 </div>
               </div>

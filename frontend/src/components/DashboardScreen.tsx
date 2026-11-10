@@ -78,7 +78,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
         <div className="relative z-10">
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <span className="text-[10.5px] font-bold uppercase tracking-widest bg-white/20 backdrop-blur-md px-2.5 py-0.5 rounded-full text-emerald-100 border border-white/10">
-              🌿 Semáforo General del Jardín
+              Semáforo General del Jardín
             </span>
             <div className="flex items-center gap-1.5 bg-black/40 backdrop-blur-md px-2.5 py-0.5 rounded-full text-[11px] font-medium text-emerald-300 border border-white/10">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />

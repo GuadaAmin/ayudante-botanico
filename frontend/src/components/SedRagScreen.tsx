@@ -20,7 +20,7 @@ import {
   Info
 } from 'lucide-react';
 import { Specimen, SedRule } from '../types';
-import { SED_RULES, determinarReglasDisparadas } from '../data/botanicalData';
+import { SED_RULES, determinarReglasDisparadas, INITIAL_SPECIMENS } from '../data/botanicalData';
 import { 
   consultarAsesorRAG, 
   evaluarSED,
@@ -30,6 +30,7 @@ import {
 } from '../services/api';
 import ReactMarkdown from 'react-markdown';
 import { getAllRAGDocuments } from '../services/customBotanicalStorage';
+import { BrotiBot, BrotiMood } from './BrotiBot';
 
 interface SedRagScreenProps {
   specimens: Specimen[];
@@ -75,11 +76,12 @@ export const SedRagScreen: React.FC<SedRagScreenProps> = ({
   onWaterSpecimen,
   onSelectSpecimenForModal,
 }) => {
+  const effectiveSpecimens = (specimens && specimens.length > 0) ? specimens : INITIAL_SPECIMENS;
   const [activeSubTab, setActiveSubTab] = useState<'asesor' | 'rules'>('asesor');
   
   // Specimen selection for context injection
   const [selectedSpecimenId, setSelectedSpecimenId] = useState<string>(
-    selectedSpecimenForDiag?.id || specimens[0]?.id || ''
+    selectedSpecimenForDiag?.id || effectiveSpecimens[0]?.id || ''
   );
 
   // Chatbot State
@@ -103,6 +105,9 @@ export const SedRagScreen: React.FC<SedRagScreenProps> = ({
   const [customTa, setCustomTa] = useState<number>(35);
   const [customHr, setCustomHr] = useState<number>(40);
 
+  // Broti Bot Companion State
+  const [isBrotiWatering, setIsBrotiWatering] = useState(false);
+
   // Search filter in rules
   const [ruleCategoryFilter, setRuleCategoryFilter] = useState<string>('all');
   const [ruleSearch, setRuleSearch] = useState('');
@@ -121,7 +126,7 @@ export const SedRagScreen: React.FC<SedRagScreenProps> = ({
     }
   }, [chatMessages, isAskingRAG]);
 
-  const currentSp = specimens.find((s) => s.id === selectedSpecimenId) || specimens[0];
+  const currentSp = effectiveSpecimens.find((s) => s.id === selectedSpecimenId) || effectiveSpecimens[0];
   const numericPlantaId = extractPlantaId(currentSp?.id || '1');
 
   const getPreguntasSugeridas = (sp: Specimen) => {
@@ -458,6 +463,8 @@ export const SedRagScreen: React.FC<SedRagScreenProps> = ({
    */
   const handleWaterFromChat = (msgId: string, specimenId: string, specimenName: string) => {
     onWaterSpecimen?.(specimenId);
+    setIsBrotiWatering(true);
+    setTimeout(() => setIsBrotiWatering(false), 3000);
 
     setChatMessages((prev) =>
       prev.map((m) => {
@@ -474,7 +481,23 @@ export const SedRagScreen: React.FC<SedRagScreenProps> = ({
     const confirmMsg: ChatMessage = {
       id: `bot-water-${Date.now()}`,
       sender: 'assistant',
-      text: `💧 **Riego de Auxilio Aplicado:** Se ha suministrado riego inmediato a **${specimenName}**. El evento ha sido guardado en la bitácora del ejemplar y la prioridad de riego ha sido mitigada en el semáforo general.`,
+      text: `**Riego de Auxilio Aplicado:** Se ha suministrado riego inmediato a **${specimenName}**. El evento ha sido guardado en la bitácora del ejemplar y la prioridad de riego ha sido mitigada en el semáforo general.`,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      source: 'local'
+    };
+    setChatMessages((prev) => [...prev, confirmMsg]);
+  };
+
+  const handleWaterFromBroti = () => {
+    if (!currentSp) return;
+    onWaterSpecimen?.(currentSp.id);
+    setIsBrotiWatering(true);
+    setTimeout(() => setIsBrotiWatering(false), 3000);
+
+    const confirmMsg: ChatMessage = {
+      id: `bot-water-${Date.now()}`,
+      sender: 'assistant',
+      text: `**Riego de Auxilio Aplicado:** Se ha suministrado riego inmediato a **${currentSp.name}**. El evento ha sido guardado en la bitácora del ejemplar y la prioridad de riego ha sido mitigada en el semáforo general.`,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       source: 'local'
     };
@@ -491,22 +514,6 @@ export const SedRagScreen: React.FC<SedRagScreenProps> = ({
     return matchesCat && matchesSearch;
   });
   
-  if (specimens.length === 0) {
-    return (
-      <div className="bg-white rounded-3xl p-8 text-center border border-[#dce7d5] space-y-3 mt-4">
-        <div className="w-12 h-12 bg-[#e3eedb] text-[#334c2b] rounded-2xl mx-auto flex items-center justify-center">
-          <Bot className="w-6 h-6" />
-        </div>
-        <h3 className="font-botanical text-[20px] font-bold text-[#22371c]">
-          El Asesor SED requiere ejemplares
-        </h3>
-        <p className="text-[13px] text-[#556c4e] max-w-md mx-auto">
-          Para que el Chatbot con lógica difusa y RAG pueda evaluar la telemetría y recomendar acciones, primero debes plantar un ejemplar en tu jardín desde el Dashboard.
-        </p>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-4 pb-4">
       {/* Sub-tab switcher: Chatbot SED vs Reglas */}
@@ -538,448 +545,453 @@ export const SedRagScreen: React.FC<SedRagScreenProps> = ({
 
       {/* TAB 1: CHATBOT SED EXPERTO */}
       {activeSubTab === 'asesor' && (
-        <div className="space-y-3.5">
-          {/* Header Card: Selector de ejemplar y estado de conectividad */}
-          <div className="bg-white rounded-2xl p-3.5 border border-[#dce7d5] shadow-xs space-y-2.5">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-[#e3eedb] text-[#334c2b] flex items-center justify-center shrink-0">
-                  <Sparkles className="w-4.5 h-4.5" />
-                </div>
-                <div>
-                  <h3 className="font-botanical text-[18px] font-bold text-[#1f3019] leading-tight">
-                    Chatbot Inteligente · Sistema Experto
-                  </h3>
-                  <p className="text-[11.5px] text-[#566e4e]">
-                    Inferencia difusa neurosimbólica: evalúa reglas de producción y responde en tiempo real.
-                  </p>
-                </div>
+        <div className="space-y-3">
+          {/* Barra Superior Compacta: Planta en Foco y Telemetría en Vivo */}
+          <div className="bg-white rounded-2xl p-2.5 sm:p-3 border border-[#d2decb] shadow-xs flex flex-wrap items-center justify-between gap-2.5">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="relative w-9 h-9 rounded-xl overflow-hidden shrink-0 border border-[#c4d6bc]">
+                <img
+                  src={currentSp.imageUrl}
+                  alt={currentSp.name}
+                  referrerPolicy="no-referrer"
+                  className="w-full h-full object-cover"
+                />
+                <span
+                  className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-white ${
+                    currentSp.status === 'critical' ? 'bg-[#ef4444]' : currentSp.status === 'attention' ? 'bg-[#f59e0b]' : 'bg-[#10b981]'
+                  }`}
+                />
               </div>
 
-              <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full flex items-center gap-1.5 self-start sm:self-center shrink-0 ${
-                backendStatus ? 'bg-[#eef8eb] text-[#2d5f22] border border-[#c3e3ba]' : 'bg-[#fffbeb] text-[#92400e] border border-[#fde68a]'
-              }`}>
-                <Server className="w-3.5 h-3.5" />
-                <span>{backendStatus ? 'FastAPI 8000 (ChromaDB)' : 'Modo Simulado'}</span>
-              </span>
-            </div>
-
-            {/* Tarjeta de Planta en Foco y Selector */}
-            <div className="pt-2 border-t border-[#edf3e8] flex flex-col gap-2">
-              <div className="bg-[#f2f7ef] rounded-2xl p-2.5 border border-[#d6e3cf] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="relative w-11 h-11 rounded-xl overflow-hidden shrink-0 border border-[#c4d6bc] shadow-2xs">
-                    <img
-                      src={currentSp.imageUrl}
-                      alt={currentSp.name}
-                      referrerPolicy="no-referrer"
-                      className="w-full h-full object-cover"
-                    />
-                    <span
-                      className={`absolute bottom-0.5 right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white ${
-                        currentSp.status === 'critical' ? 'bg-[#ef4444]' : currentSp.status === 'attention' ? 'bg-[#f59e0b]' : 'bg-[#10b981]'
-                      }`}
-                    />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-[10px] uppercase font-bold text-[#556d4e] tracking-wider">Planta Activa:</span>
-                      <select
-                        id="select-plant-focus"
-                        value={selectedSpecimenId}
-                        onChange={(e) => setSelectedSpecimenId(e.target.value)}
-                        className="bg-white text-[#22331d] text-[13px] font-bold py-0.5 px-2 rounded-lg border border-[#cad7c1] focus:outline-none focus:border-[#526b4a] cursor-pointer"
-                      >
-                        {specimens.map((s) => (
-                          <option key={s.id} value={s.id}>
-                            {s.name} ({s.commonName || s.scientificName})
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <p className="text-[11px] text-[#5b7354] truncate mt-0.5">
-                      {currentSp.scientificName} · {currentSp.location}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2 flex-wrap shrink-0">
-                  <span className="bg-white text-[11px] font-semibold px-2 py-0.5 rounded-lg border border-[#d8e4d2] text-[#334d2a]">
-                     Suelo: <strong>{currentSp.soilMoisture}%</strong>
-                  </span>
-                  <span className="bg-white text-[11px] font-semibold px-2 py-0.5 rounded-lg border border-[#d8e4d2] text-[#334d2a]">
-                     <strong>{currentSp.temperature}°C</strong>
-                  </span>
-                  <span className="bg-white text-[11px] font-semibold px-2 py-0.5 rounded-lg border border-[#d8e4d2] text-[#334d2a]">
-                     HR: <strong>{currentSp.humidity}%</strong>
-                  </span>
-                  <button
-                    onClick={() => setShowCustomModal(true)}
-                    className="bg-white hover:bg-[#edf5e7] text-[#2d4624] text-[11px] font-bold py-1 px-2.5 rounded-lg border border-[#c6d9bf] flex items-center gap-1 transition-all cursor-pointer shadow-2xs"
-                  >
-                    <Sliders className="w-3 h-3" />
-                    <span>Ajustar</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Preguntas Sugeridas Específicas para esta Planta */}
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="text-[10.5px] font-bold text-[#516749] flex items-center gap-1">
-                  <Sparkles className="w-3 h-3 text-[#526b4a]" />
-                  <span>Preguntas sobre {currentSp.name}:</span>
-                </span>
-                {getPreguntasSugeridas(currentSp).map((p, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => handleSendMessage(p.query)}
-                    disabled={isAskingRAG}
-                    className="text-[11px] font-medium bg-white hover:bg-[#eef5eb] text-[#293d22] px-2.5 py-0.5 rounded-full border border-[#cad8c3] shadow-2xs transition-all active:scale-95 cursor-pointer"
-                  >
-                    {p.label}
-                  </button>
-                ))}
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[11px] font-bold text-[#556d4e]">Monitoreando:</span>
+                <select
+                  id="select-plant-focus"
+                  value={selectedSpecimenId}
+                  onChange={(e) => setSelectedSpecimenId(e.target.value)}
+                  className="bg-[#f2f7ef] text-[#22331d] text-[12.5px] font-bold py-1 px-2.5 rounded-xl border border-[#c7d7bf] focus:outline-none focus:border-[#526b4a] cursor-pointer"
+                >
+                  {effectiveSpecimens.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name} ({s.commonName || s.scientificName})
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
 
-            {/* Chips de Diagnóstico Rápido e Inmediato */}
-            <div className="pt-2 border-t border-[#edf3e8]">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-[#697d62] block mb-1.5">
-                 Pruebas con Reglas de Producción Mamdani:
+            {/* Telemetría en Vivo y Botón de Parámetros */}
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="bg-[#f4f8f0] text-[11px] font-semibold px-2 py-1 rounded-lg border border-[#dbe6d5] text-[#334d2a]">
+                Suelo: <strong>{currentSp.soilMoisture}%</strong>
               </span>
-              <div className="flex flex-wrap gap-1.5">
-                <button
-                  onClick={() =>
-                    ejecutarDiagnosticoChat({
-                      hvs: 20,
-                      ta: 35,
-                      hr: 40,
-                      userQuery: `Diagnosticar ${currentSp.name} con caso crítico: Suelo 20%, Temperatura 35°C, Humedad 40%`,
-                      specimen: currentSp,
-                    })
-                  }
-                  disabled={isAskingRAG}
-                  className="text-[11px] font-semibold bg-[#fee2e2] hover:bg-[#fecaca] text-[#991b1b] px-2.5 py-1 rounded-full border border-[#fca5a5] flex items-center gap-1 transition-all cursor-pointer"
-                >
-                  <Flame className="w-3 h-3 text-[#dc2626]" />
-                  <span>🔴 Caso Crítico (REG-01)</span>
-                </button>
-
-                <button
-                  onClick={() =>
-                    ejecutarDiagnosticoChat({
-                      hvs: 85,
-                      ta: 26,
-                      hr: 88,
-                      userQuery: `Evaluar riesgo fitosanitario para ${currentSp.name}: Suelo 85%, Temp 26°C, HR 88%`,
-                      specimen: currentSp,
-                    })
-                  }
-                  disabled={isAskingRAG}
-                  className="text-[11px] font-semibold bg-[#fef3c7] hover:bg-[#fde68a] text-[#92400e] px-2.5 py-1 rounded-full border border-[#fcd34d] flex items-center gap-1 transition-all cursor-pointer"
-                >
-                  <ShieldAlert className="w-3 h-3 text-[#d97706]" />
-                  <span>🟠 Riesgo Fitosanitario (REG-11)</span>
-                </button>
-
-                <button
-                  onClick={() =>
-                    ejecutarDiagnosticoChat({
-                      hvs: 55,
-                      ta: 22,
-                      hr: 50,
-                      userQuery: `Evaluar condición óptima para ${currentSp.name}: Suelo 55%, Temp 22°C, HR 50%`,
-                      specimen: currentSp,
-                    })
-                  }
-                  disabled={isAskingRAG}
-                  className="text-[11px] font-semibold bg-[#ecfdf5] hover:bg-[#d1fae5] text-[#065f46] px-2.5 py-1 rounded-full border border-[#a7f3d0] flex items-center gap-1 transition-all cursor-pointer"
-                >
-                  <CheckCircle2 className="w-3 h-3 text-[#10b981]" />
-                  <span>🟢 Caso Óptimo (REG-08)</span>
-                </button>
-
-                <button
-                  onClick={() =>
-                    ejecutarDiagnosticoChat({
-                      hvs: currentSp.soilMoisture,
-                      ta: currentSp.temperature,
-                      hr: currentSp.humidity,
-                      userQuery: `¿Cuál es el diagnóstico actual de ${currentSp.name}? (Suelo ${currentSp.soilMoisture}%, Temp ${currentSp.temperature}°C, HR ${currentSp.humidity}%)`,
-                      specimen: currentSp,
-                    })
-                  }
-                  disabled={isAskingRAG}
-                  className="text-[11px] font-semibold bg-[#f0f6ec] hover:bg-[#e2edd9] text-[#2c4424] px-2.5 py-1 rounded-full border border-[#d2dec9] flex items-center gap-1 transition-all cursor-pointer"
-                >
-                  <span> Diagnosticar {currentSp.name}</span>
-                </button>
-
-                <button
-                  onClick={() => handleSendMessage('¿Cuáles son las 20 reglas difusas de Mamdani?')}
-                  disabled={isAskingRAG}
-                  className="text-[11px] font-semibold bg-white hover:bg-[#f6f9f3] text-[#4d6643] px-2.5 py-1 rounded-full border border-[#d4e2cd] transition-all cursor-pointer"
-                >
-                   Ver 20 Reglas SED
-                </button>
-              </div>
+              <span className="bg-[#f4f8f0] text-[11px] font-semibold px-2 py-1 rounded-lg border border-[#dbe6d5] text-[#334d2a]">
+                Temp: <strong>{currentSp.temperature}°C</strong>
+              </span>
+              <span className="bg-[#f4f8f0] text-[11px] font-semibold px-2 py-1 rounded-lg border border-[#dbe6d5] text-[#334d2a]">
+                HR: <strong>{currentSp.humidity}%</strong>
+              </span>
+              <button
+                onClick={() => setShowCustomModal(true)}
+                className="bg-[#526b4a] hover:bg-[#43573c] text-white text-[11px] font-bold py-1 px-2.5 rounded-lg flex items-center gap-1 transition-all cursor-pointer shadow-2xs"
+                title="Ajustar parámetros telemétricos"
+              >
+                <Sliders className="w-3 h-3" />
+                <span>Simular</span>
+              </button>
             </div>
           </div>
 
-          {/* Chat Messages Feed */}
-          <div
-            ref={chatContainerRef}
-            className="bg-[#f6f9f3] rounded-[24px] p-4 border border-[#dce7d5] min-h-[380px] max-h-[520px] overflow-y-auto space-y-3.5 scroll-smooth"
-          >
-            {chatMessages.map((msg) => {
-              const isUser = msg.sender === 'user';
-              const diag = msg.diagnostic;
+          {/* Grid Principal: Broti el Robotito Botánico + Chat Feed Prominente */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-3.5 items-start">
+            
+            {/* Columna Izquierda: Broti Bot Companion */}
+            <div className="lg:col-span-4">
+              <BrotiBot
+                mood={
+                  isBrotiWatering
+                    ? 'watering'
+                    : isAskingRAG
+                    ? 'thinking'
+                    : ((chatMessages[chatMessages.length - 1]?.diagnostic?.prioridadRiego ?? 0) > 65 || (currentSp?.irrigationPriority ?? 0) > 65)
+                    ? 'thirsty'
+                    : 'happy'
+                }
+                specimenName={currentSp?.name || 'Jacarandá'}
+                onWater={handleWaterFromBroti}
+              />
+            </div>
 
-              return (
-                <div
-                  key={msg.id}
-                  className={`flex flex-col ${isUser ? 'items-end' : 'items-start'}`}
-                >
-                  <div
-                    className={`max-w-[92%] sm:max-w-[85%] p-4 rounded-2xl text-[13px] leading-relaxed shadow-2xs ${
-                      isUser
-                        ? 'bg-[#526b4a] text-white rounded-br-xs'
-                        : 'bg-white text-[#22331d] border border-[#dce7d5] rounded-bl-xs space-y-3'
-                    }`}
-                  >
-                    {!isUser && (
-                      <div className="flex items-center justify-between gap-2 pb-2 border-b border-[#edf3e8] text-[11px]">
-                        <span className="font-bold text-[#566f4e] flex items-center gap-1.5">
-                          <Bot className="w-3.5 h-3.5 text-[#526b4a]" />
-                          <span>Sistema Experto Botánico (SED + RAG)</span>
-                        </span>
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                          msg.source === 'backend' ? 'bg-[#e2f3df] text-[#26591d]' : 'bg-[#fef3c7] text-[#92400e]'
-                        }`}>
-                          {msg.source === 'backend' ? '✓ Inferencia FastAPI' : 'Inferencia Local'}
-                        </span>
-                      </div>
-                    )}
-
-                    <div className="whitespace-pre-line prose prose-sm max-w-none text-[#22331d]">
-                      <ReactMarkdown>{msg.text}</ReactMarkdown>
+            {/* Columna Derecha: Chat Feed y Barra de Entrada */}
+            <div className="lg:col-span-8 space-y-2.5">
+              
+              {/* Tarjeta Contenedora Principal del Chat con Encabezado */}
+              <div className="bg-white rounded-3xl border-2 border-[#cfe2cc] shadow-md overflow-hidden flex flex-col">
+                {/* Header del Chat Feed */}
+                <div className="px-4 py-2.5 bg-[#f6faf3] border-b border-[#cfe2cc] flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-lg bg-[#e0efdc] text-[#38562d] flex items-center justify-center">
+                      <Bot className="w-4 h-4" />
                     </div>
+                    <div>
+                      <h4 className="text-[13px] font-bold text-[#20321a] leading-tight">
+                        Chatbot Asesor SED (Mamdani + RAG)
+                      </h4>
+                      <p className="text-[10.5px] text-[#556d4d]">
+                        Inferencia difusa y recuperación semántica de ChromaDB
+                      </p>
+                    </div>
+                  </div>
 
-                    {/* EMBEDDED DIAGNOSTIC CARD */}
-                    {diag && (
-                      <div className="bg-[#fcfdfa] rounded-2xl p-3.5 border border-[#d9e6d1] space-y-3 text-[#21331c] shadow-2xs">
-                        <div className="flex items-center justify-between flex-wrap gap-1.5">
-                          <div className="flex items-center gap-2">
-                            <span className={`w-3 h-3 rounded-full ${
-                              diag.prioridadRiego > 65 || diag.riesgoFitosanitario > 75
-                                ? 'bg-[#ef4444] animate-pulse'
-                                : diag.prioridadRiego > 35 || diag.riesgoFitosanitario > 50
-                                ? 'bg-[#f59e0b]'
-                                : 'bg-[#10b981]'
-                            }`} />
-                            <span className="font-bold text-[14px] text-[#1c2e17]">
-                              Diagnóstico para {diag.specimenName}
-                            </span>
-                          </div>
+                  <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1 ${
+                    backendStatus ? 'bg-[#e7f5e4] text-[#245b1b] border border-[#bfe3b7]' : 'bg-[#fffbeb] text-[#92400e] border border-[#fde68a]'
+                  }`}>
+                    <Server className="w-3 h-3" />
+                    <span>{backendStatus ? 'FastAPI 8000' : 'Modo Simulado'}</span>
+                  </span>
+                </div>
 
-                          <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full ${
-                            diag.prioridadRiego > 65
-                              ? 'bg-[#fee2e2] text-[#b91c1c]'
-                              : diag.riesgoFitosanitario > 60
-                              ? 'bg-[#fef3c7] text-[#b45309]'
-                              : 'bg-[#ecfdf5] text-[#047857]'
-                          }`}>
-                            {diag.prioridadRiego > 65
-                              ? ' Prioridad de Riego Crítica'
-                              : diag.riesgoFitosanitario > 60
-                              ? ' Alerta Fitosanitaria'
-                              : ' Condición Estable'}
-                          </span>
-                        </div>
+                {/* Feed de Mensajes con Scroll Interno */}
+                <div
+                  ref={chatContainerRef}
+                  className="p-4 sm:p-5 min-h-[380px] max-h-[460px] overflow-y-auto space-y-3.5 scroll-smooth bg-gradient-to-b from-white to-[#fafcf9]"
+                >
+                {chatMessages.map((msg) => {
+                  const isUser = msg.sender === 'user';
+                  const diag = msg.diagnostic;
 
-                        {/* Variables Crisp de Entrada */}
-                        <div className="grid grid-cols-3 gap-1.5 bg-[#f4f8f0] p-2 rounded-xl text-center border border-[#e2ebd9] text-[11.5px]">
-                          <div>
-                            <span className="block text-[10px] font-medium text-[#5c7255]">HVS (Suelo)</span>
-                            <strong className={`font-bold ${diag.hvs < 25 ? 'text-[#dc2626]' : 'text-[#21331c]'}`}>
-                              {diag.hvs}%
-                            </strong>
-                          </div>
-                          <div>
-                            <span className="block text-[10px] font-medium text-[#5c7255]">TA (Temp)</span>
-                            <strong className={`font-bold ${diag.ta >= 35 ? 'text-[#ea580c]' : 'text-[#21331c]'}`}>
-                              {diag.ta}°C
-                            </strong>
-                          </div>
-                          <div>
-                            <span className="block text-[10px] font-medium text-[#5c7255]">HR (Ambiente)</span>
-                            <strong className={`font-bold ${diag.hr > 80 ? 'text-[#d97706]' : 'text-[#21331c]'}`}>
-                              {diag.hr}%
-                            </strong>
-                          </div>
-                        </div>
-
-                        {/* Resultados Desfuzificados Mamdani */}
-                        <div className="space-y-1.5 bg-white p-2.5 rounded-xl border border-[#e6efe1]">
-                          <div className="flex items-center justify-between text-[11.5px]">
-                            <span className="font-semibold text-[#38512f] flex items-center gap-1">
-                              <Droplets className="w-3.5 h-3.5 text-[#0284c7]" />
-                              <span>Prioridad de Riego calculada:</span>
+                  return (
+                    <div
+                      key={msg.id}
+                      className={`flex flex-col ${isUser ? 'items-end' : 'items-start'}`}
+                    >
+                      <div
+                        className={`max-w-[92%] sm:max-w-[85%] p-4 rounded-2xl text-[13px] leading-relaxed shadow-xs ${
+                          isUser
+                            ? 'bg-gradient-to-br from-[#4b6a42] to-[#36512e] text-white rounded-tr-xs'
+                            : 'bg-white text-[#21331d] border border-[#d2e3cd] rounded-tl-xs space-y-3 shadow-xs'
+                        }`}
+                      >
+                        {!isUser && (
+                          <div className="flex items-center justify-between gap-2 pb-2 border-b border-[#edf3e8] text-[11px]">
+                            <span className="font-bold text-[#456939] flex items-center gap-1.5">
+                              <Bot className="w-3.5 h-3.5 text-[#4b6a42]" />
+                              <span>Sistema Experto Botánico (SED + RAG)</span>
                             </span>
-                            <span className={`font-bold text-[13px] ${diag.prioridadRiego > 65 ? 'text-[#dc2626]' : 'text-[#20321a]'}`}>
-                              {diag.prioridadRiego}%
+                            <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
+                              msg.source === 'backend'
+                                ? 'bg-[#e7f5e4] text-[#245b1b] border-[#bfe3b7]'
+                                : 'bg-[#fffbeb] text-[#92400e] border-[#fde68a]'
+                            }`}>
+                              {msg.source === 'backend' ? 'Inferencia FastAPI' : 'Inferencia Local'}
                             </span>
-                          </div>
-                          <div className="w-full h-2 bg-[#e8f0e4] rounded-full overflow-hidden">
-                            <div
-                              className={`h-full transition-all duration-700 ${
-                                diag.prioridadRiego > 80 ? 'bg-[#ef4444]' : diag.prioridadRiego > 65 ? 'bg-[#f97316]' : diag.prioridadRiego > 35 ? 'bg-[#f59e0b]' : 'bg-[#10b981]'
-                              }`}
-                              style={{ width: `${Math.min(diag.prioridadRiego, 100)}%` }}
-                            />
-                          </div>
-
-                          <div className="flex items-center justify-between text-[11.5px] pt-1">
-                            <span className="font-semibold text-[#38512f] flex items-center gap-1">
-                              <ShieldAlert className="w-3.5 h-3.5 text-[#d97706]" />
-                              <span>Riesgo Fitosanitario calculado:</span>
-                            </span>
-                            <span className={`font-bold text-[13px] ${diag.riesgoFitosanitario > 65 ? 'text-[#dc2626]' : 'text-[#20321a]'}`}>
-                              {diag.riesgoFitosanitario}%
-                            </span>
-                          </div>
-                          <div className="w-full h-2 bg-[#e8f0e4] rounded-full overflow-hidden">
-                            <div
-                              className={`h-full transition-all duration-700 ${
-                                diag.riesgoFitosanitario > 75 ? 'bg-[#ef4444]' : diag.riesgoFitosanitario > 50 ? 'bg-[#f59e0b]' : 'bg-[#10b981]'
-                              }`}
-                              style={{ width: `${Math.min(diag.riesgoFitosanitario, 100)}%` }}
-                            />
-                          </div>
-                        </div>
-
-                        {/* Reglas Mamdani Activadas */}
-                        {diag.reglasActivadas.length > 0 && (
-                          <div className="space-y-1.5 pt-1">
-                            <span className="text-[11px] font-bold uppercase tracking-wider text-[#546b4c] block">
-                              Reglas de producción disparadas por el SED:
-                            </span>
-                            {diag.reglasActivadas.map((regla) => (
-                              <div key={regla.id} className="bg-[#f5f9f2] p-2 rounded-xl border border-[#dfeada] text-[11.5px] space-y-0.5">
-                                <div className="flex items-center justify-between">
-                                  <span className="font-mono font-bold text-[11px] bg-[#dce8d5] text-[#263a20] px-1.5 py-0.5 rounded">
-                                    {regla.code}
-                                  </span>
-                                  <span className="font-bold text-[#23351d] truncate max-w-[200px]">
-                                    {regla.name}
-                                  </span>
-                                </div>
-                                <p className="font-mono text-[10.5px] text-[#4d6645]">
-                                  {regla.antecedent} ➔ {regla.consequent}
-                                </p>
-                                <p className="text-[11px] text-[#2c4025]">
-                                   <strong>Acción recomendada:</strong> {regla.recommendedAction}
-                                </p>
-                              </div>
-                            ))}
                           </div>
                         )}
 
-                        {/* Botones interactivos en el chat */}
-                        <div className="flex items-center gap-2 pt-2 border-t border-[#e2edd8]">
-                          {diag.prioridadRiego > 65 && !diag.isWatered && (
-                            <button
-                              onClick={() => handleWaterFromChat(msg.id, diag.specimenId, diag.specimenName)}
-                              className="flex-1 bg-[#526b4a] hover:bg-[#42573a] text-white text-[12px] font-bold py-1.5 px-3 rounded-xl flex items-center justify-center gap-1.5 shadow-2xs transition-all active:scale-95 cursor-pointer"
-                            >
-                              <Droplets className="w-3.5 h-3.5" />
-                              <span>Aplicar Riego Inmediato</span>
-                            </button>
-                          )}
-
-                          {diag.isWatered && (
-                            <div className="flex-1 bg-[#ecfdf5] text-[#065f46] text-[11.5px] font-bold py-1.5 px-3 rounded-xl flex items-center justify-center gap-1 border border-[#a7f3d0]">
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                              <span>Riego registrado en bitácora</span>
-                            </div>
-                          )}
-
-                          <button
-                            onClick={() => {
-                              const sp = specimens.find((s) => s.id === diag.specimenId);
-                              if (sp) onSelectSpecimenForModal?.(sp);
-                            }}
-                            className="bg-white hover:bg-[#f6f9f3] text-[#344d2d] text-[11.5px] font-semibold py-1.5 px-3 rounded-xl border border-[#cad7c2] flex items-center justify-center gap-1 transition-all cursor-pointer"
-                          >
-                            <ExternalLink className="w-3.5 h-3.5" />
-                            <span>Ver Ejemplar</span>
-                          </button>
+                        <div className={`whitespace-pre-line prose prose-sm max-w-none ${
+                          isUser ? 'text-white prose-invert' : 'text-[#22331d]'
+                        }`}>
+                          <ReactMarkdown>{msg.text}</ReactMarkdown>
                         </div>
-                      </div>
-                    )}
 
-                    {!isUser && msg.rawPayload && (
-                      <div className="pt-1.5 border-t border-[#edf3e8]">
-                        <button
-                          onClick={() => setShowRawPayloadModal(msg.rawPayload || '')}
-                          className="text-[11px] text-[#4d6644] hover:text-[#23351d] font-semibold flex items-center gap-1 underline cursor-pointer"
-                        >
-                          <Terminal className="w-3.5 h-3.5" />
-                          <span>Inspeccionar System Prompt inyectado al LLM (TP2)</span>
-                        </button>
+                        {/* EMBEDDED DIAGNOSTIC CARD */}
+                        {diag && (
+                          <div className="bg-[#f8fbf6] rounded-2xl p-3.5 border border-[#d3e3ce] space-y-3 text-[#21331c] shadow-2xs">
+                            <div className="flex items-center justify-between flex-wrap gap-1.5">
+                              <div className="flex items-center gap-2">
+                                <span className={`w-2.5 h-2.5 rounded-full ${
+                                  diag.prioridadRiego > 65 || diag.riesgoFitosanitario > 75
+                                    ? 'bg-[#ef4444] animate-pulse'
+                                    : diag.prioridadRiego > 35 || diag.riesgoFitosanitario > 50
+                                    ? 'bg-[#f59e0b]'
+                                    : 'bg-[#10b981]'
+                                }`} />
+                                <span className="font-bold text-[13.5px] text-[#1c2e17]">
+                                  Diagnóstico para {diag.specimenName}
+                                </span>
+                              </div>
+
+                              <span className={`text-[10.5px] font-bold px-2.5 py-0.5 rounded-full border ${
+                                diag.prioridadRiego > 65
+                                  ? 'bg-[#fee2e2] text-[#b91c1c] border-[#fca5a5]'
+                                  : diag.riesgoFitosanitario > 60
+                                  ? 'bg-[#fef3c7] text-[#b45309] border-[#fcd34d]'
+                                  : 'bg-[#ecfdf5] text-[#047857] border-[#a7f3d0]'
+                              }`}>
+                                {diag.prioridadRiego > 65
+                                  ? 'Prioridad de Riego Crítica'
+                                  : diag.riesgoFitosanitario > 60
+                                  ? 'Alerta Fitosanitaria'
+                                  : 'Condición Estable'}
+                              </span>
+                            </div>
+
+                            {/* Variables Crisp de Entrada */}
+                            <div className="grid grid-cols-3 gap-2 bg-white p-2 rounded-xl text-center border border-[#dbe8d7] text-[11px] font-mono shadow-2xs">
+                              <div>
+                                <span className="block text-[9.5px] font-medium text-[#5c7255] uppercase">HVS (Suelo)</span>
+                                <strong className={`font-bold text-[12.5px] ${diag.hvs < 25 ? 'text-[#dc2626]' : 'text-[#21331c]'}`}>
+                                  {diag.hvs}%
+                                </strong>
+                              </div>
+                              <div>
+                                <span className="block text-[9.5px] font-medium text-[#5c7255] uppercase">TA (Temp)</span>
+                                <strong className={`font-bold text-[12.5px] ${diag.ta >= 35 ? 'text-[#ea580c]' : 'text-[#21331c]'}`}>
+                                  {diag.ta}°C
+                                </strong>
+                              </div>
+                              <div>
+                                <span className="block text-[9.5px] font-medium text-[#5c7255] uppercase">HR (Ambiente)</span>
+                                <strong className={`font-bold text-[12.5px] ${diag.hr > 80 ? 'text-[#d97706]' : 'text-[#21331c]'}`}>
+                                  {diag.hr}%
+                                </strong>
+                              </div>
+                            </div>
+
+                            {/* Resultados Desfuzificados Mamdani */}
+                            <div className="space-y-2 bg-white p-3 rounded-xl border border-[#dbe8d6] shadow-2xs">
+                              <div>
+                                <div className="flex items-center justify-between text-[11px] font-semibold text-[#324f28] mb-1">
+                                  <span className="flex items-center gap-1">
+                                    <Droplets className="w-3.5 h-3.5 text-[#0284c7]" />
+                                    <span>Prioridad de Riego (Mamdani):</span>
+                                  </span>
+                                  <span className={`font-bold text-[12.5px] ${diag.prioridadRiego > 65 ? 'text-[#dc2626]' : 'text-[#20321a]'}`}>
+                                    {diag.prioridadRiego}%
+                                  </span>
+                                </div>
+                                <div className="w-full h-2 bg-[#e8f1e5] rounded-full overflow-hidden">
+                                  <div
+                                    className={`h-full transition-all duration-700 ${
+                                      diag.prioridadRiego > 80
+                                        ? 'bg-gradient-to-r from-amber-500 to-rose-500'
+                                        : diag.prioridadRiego > 65
+                                        ? 'bg-gradient-to-r from-amber-500 to-orange-500'
+                                        : diag.prioridadRiego > 35
+                                        ? 'bg-gradient-to-r from-emerald-500 to-amber-500'
+                                        : 'bg-gradient-to-r from-teal-500 to-emerald-500'
+                                    }`}
+                                    style={{ width: `${Math.min(diag.prioridadRiego, 100)}%` }}
+                                  />
+                                </div>
+                              </div>
+
+                              <div>
+                                <div className="flex items-center justify-between text-[11px] font-semibold text-[#324f28] mb-1">
+                                  <span className="flex items-center gap-1">
+                                    <ShieldAlert className="w-3.5 h-3.5 text-[#d97706]" />
+                                    <span>Riesgo Fitosanitario (Mamdani):</span>
+                                  </span>
+                                  <span className={`font-bold text-[12.5px] ${diag.riesgoFitosanitario > 65 ? 'text-[#dc2626]' : 'text-[#20321a]'}`}>
+                                    {diag.riesgoFitosanitario}%
+                                  </span>
+                                </div>
+                                <div className="w-full h-2 bg-[#e8f1e5] rounded-full overflow-hidden">
+                                  <div
+                                    className={`h-full transition-all duration-700 ${
+                                      diag.riesgoFitosanitario > 75
+                                        ? 'bg-gradient-to-r from-orange-500 to-rose-500'
+                                        : diag.riesgoFitosanitario > 50
+                                        ? 'bg-gradient-to-r from-amber-500 to-orange-500'
+                                        : 'bg-gradient-to-r from-teal-500 to-emerald-500'
+                                    }`}
+                                    style={{ width: `${Math.min(diag.riesgoFitosanitario, 100)}%` }}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Reglas Mamdani Activadas */}
+                            {diag.reglasActivadas.length > 0 && (
+                              <div className="space-y-1.5 pt-1">
+                                <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#546b4c] block">
+                                  Reglas de producción disparadas por el SED:
+                                </span>
+                                {diag.reglasActivadas.map((regla) => (
+                                  <div key={regla.id} className="bg-white p-2 rounded-xl border border-[#dce9d7] text-[11px] space-y-0.5 font-mono shadow-2xs">
+                                    <div className="flex items-center justify-between">
+                                      <span className="font-bold text-[10px] bg-[#dce8d5] text-[#263a20] px-1.5 py-0.5 rounded">
+                                        {regla.code}
+                                      </span>
+                                      <span className="font-bold text-[#23351d] truncate max-w-[200px]">
+                                        {regla.name}
+                                      </span>
+                                    </div>
+                                    <p className="text-[10.5px] text-[#4d6645]">
+                                      {regla.antecedent} -&gt; {regla.consequent}
+                                    </p>
+                                    <p className="text-[11px] text-[#2c4025] font-sans">
+                                      <strong>Acción recomendada:</strong> {regla.recommendedAction}
+                                    </p>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            {/* Botones interactivos en el chat */}
+                            <div className="flex items-center gap-2 pt-2 border-t border-[#e2edd8]">
+                              {diag.prioridadRiego > 65 && !diag.isWatered && (
+                                <button
+                                  onClick={() => handleWaterFromChat(msg.id, diag.specimenId, diag.specimenName)}
+                                  className="flex-1 bg-gradient-to-r from-sky-500 to-emerald-600 hover:from-sky-600 hover:to-emerald-700 text-white text-[12px] font-bold py-2 px-3 rounded-xl flex items-center justify-center gap-1.5 shadow-2xs transition-all active:scale-95 cursor-pointer"
+                                >
+                                  <Droplets className="w-3.5 h-3.5" />
+                                  <span>Aplicar Riego Inmediato</span>
+                                </button>
+                              )}
+
+                              {diag.isWatered && (
+                                <div className="flex-1 bg-[#ecfdf5] text-[#065f46] text-[11px] font-bold py-2 px-3 rounded-xl flex items-center justify-center gap-1.5 border border-[#a7f3d0]">
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                  <span>Riego registrado en bitácora</span>
+                                </div>
+                              )}
+
+                              <button
+                                onClick={() => {
+                                  const sp = specimens.find((s) => s.id === diag.specimenId);
+                                  if (sp) onSelectSpecimenForModal?.(sp);
+                                }}
+                                className="bg-white hover:bg-[#f6f9f3] text-[#344d2d] text-[11.5px] font-semibold py-2 px-3 rounded-xl border border-[#cad7c2] flex items-center justify-center gap-1 transition-all cursor-pointer shadow-2xs"
+                              >
+                                <ExternalLink className="w-3.5 h-3.5" />
+                                <span>Ver Ejemplar</span>
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {!isUser && msg.rawPayload && (
+                          <div className="pt-1.5 border-t border-[#edf3e8]">
+                            <button
+                              onClick={() => setShowRawPayloadModal(msg.rawPayload || '')}
+                              className="text-[11px] text-[#4d6644] hover:text-[#23351d] font-semibold flex items-center gap-1 underline cursor-pointer"
+                            >
+                              <Terminal className="w-3.5 h-3.5" />
+                              <span>Inspeccionar System Prompt inyectado al LLM (TP2)</span>
+                            </button>
+                          </div>
+                        )}
                       </div>
-                    )}
+                      <span className="text-[10px] text-[#788e72] mt-0.5 px-1">{msg.timestamp}</span>
+                    </div>
+                  );
+                })}
+
+                {isAskingRAG && (
+                  <div className="flex items-center gap-2.5 p-3 text-[12px] text-[#435c3a] bg-white rounded-2xl border border-[#dce7d5] w-fit shadow-2xs animate-pulse">
+                    <RefreshCw className="w-4 h-4 animate-spin text-[#526b4a]" />
+                    <span>Ejecutando motor difuso (SED) y recuperando literatura en ChromaDB...</span>
                   </div>
-                  <span className="text-[10px] text-[#788e72] mt-0.5 px-1">{msg.timestamp}</span>
-                </div>
-              );
-            })}
-
-            {isAskingRAG && (
-              <div className="flex items-center gap-2.5 p-3 text-[12.5px] text-[#435c3a] bg-white rounded-2xl border border-[#dce7d5] w-fit shadow-2xs animate-pulse">
-                <RefreshCw className="w-4 h-4 animate-spin text-[#526b4a]" />
-                <span>Ejecutando motor difuso (SED) y recuperando literatura en ChromaDB...</span>
+                )}
               </div>
-            )}
+
+              {/* Chips de Preguntas Rápidas y Pruebas Mamdani */}
+              <div className="px-3 pt-2.5 pb-2 border-t border-[#edf3e8] bg-[#fcfdfa] space-y-2">
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none text-[11px]">
+                  <span className="font-bold text-[#566e4e] shrink-0 text-[10px] uppercase">Pruebas Mamdani:</span>
+                  <button
+                    onClick={() =>
+                      ejecutarDiagnosticoChat({
+                        hvs: 20,
+                        ta: 35,
+                        hr: 40,
+                        userQuery: `Diagnosticar ${currentSp.name} con caso crítico: Suelo 20%, Temperatura 35°C, Humedad 40%`,
+                        specimen: currentSp,
+                      })
+                    }
+                    disabled={isAskingRAG}
+                    className="shrink-0 bg-[#fee2e2] hover:bg-[#fecaca] text-[#991b1b] px-2.5 py-0.5 rounded-full border border-[#fca5a5] font-semibold flex items-center gap-1 cursor-pointer transition-all active:scale-95 shadow-2xs"
+                  >
+                    <Flame className="w-3 h-3 text-[#dc2626]" />
+                    <span>Caso Crítico</span>
+                  </button>
+                  <button
+                    onClick={() =>
+                      ejecutarDiagnosticoChat({
+                        hvs: 85,
+                        ta: 26,
+                        hr: 88,
+                        userQuery: `Evaluar riesgo fitosanitario para ${currentSp.name}: Suelo 85%, Temp 26°C, HR 88%`,
+                        specimen: currentSp,
+                      })
+                    }
+                    disabled={isAskingRAG}
+                    className="shrink-0 bg-[#fef3c7] hover:bg-[#fde68a] text-[#92400e] px-2.5 py-0.5 rounded-full border border-[#fcd34d] font-semibold flex items-center gap-1 cursor-pointer transition-all active:scale-95 shadow-2xs"
+                  >
+                    <ShieldAlert className="w-3 h-3 text-[#d97706]" />
+                    <span>Riesgo Fitosanitario</span>
+                  </button>
+                  <button
+                    onClick={() =>
+                      ejecutarDiagnosticoChat({
+                        hvs: 55,
+                        ta: 22,
+                        hr: 50,
+                        userQuery: `Evaluar condición óptima para ${currentSp.name}: Suelo 55%, Temp 22°C, HR 50%`,
+                        specimen: currentSp,
+                      })
+                    }
+                    disabled={isAskingRAG}
+                    className="shrink-0 bg-[#ecfdf5] hover:bg-[#d1fae5] text-[#065f46] px-2.5 py-0.5 rounded-full border border-[#a7f3d0] font-semibold flex items-center gap-1 cursor-pointer transition-all active:scale-95 shadow-2xs"
+                  >
+                    <CheckCircle2 className="w-3 h-3 text-[#10b981]" />
+                    <span>Caso Óptimo</span>
+                  </button>
+                  {getPreguntasSugeridas(currentSp).map((p, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => handleSendMessage(p.query)}
+                      disabled={isAskingRAG}
+                      className="shrink-0 bg-white hover:bg-[#eef5eb] text-[#293d22] px-2.5 py-0.5 rounded-full border border-[#cad8c3] font-medium cursor-pointer transition-all active:scale-95 shadow-2xs"
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Chat Input Bar */}
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    handleSendMessage();
+                  }}
+                  className="flex items-center gap-2"
+                >
+                  <button
+                    type="button"
+                    onClick={() => setShowCustomModal(true)}
+                    className="bg-[#f0f5ec] hover:bg-[#e4edd9] text-[#465f3f] p-2.5 rounded-xl border border-[#d2dec9] shadow-2xs transition-all shrink-0 cursor-pointer"
+                    title="Ingresar valores personalizados de sensores"
+                  >
+                    <Sliders className="w-4 h-4" />
+                  </button>
+
+                  <input
+                    type="text"
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    placeholder="Escribe valores (ej: 'Suelo 20, Temp 35, HR 40') o consulta dudas botánicas..."
+                    disabled={isAskingRAG}
+                    className="flex-1 bg-white text-[13px] px-3.5 py-2.5 rounded-xl border border-[#cad7c1] focus:outline-none focus:border-[#526b4a] text-[#22331d] placeholder:text-[#8ba087]"
+                  />
+
+                  <button
+                    type="submit"
+                    disabled={isAskingRAG || !chatInput.trim()}
+                    className="bg-[#526b4a] hover:bg-[#43573c] disabled:opacity-50 text-white p-2.5 rounded-xl shadow-2xs transition-all shrink-0 cursor-pointer active:scale-95"
+                    title="Enviar al Chatbot"
+                  >
+                    <Send className="w-4 h-4" />
+                  </button>
+                </form>
+              </div>
+            </div>
           </div>
 
-          {/* Chat Input Bar */}
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              handleSendMessage();
-            }}
-            className="flex items-center gap-2"
-          >
-            <button
-              type="button"
-              onClick={() => setShowCustomModal(true)}
-              className="bg-white hover:bg-[#f3f7ef] text-[#465f3f] p-3 rounded-2xl border border-[#dbe6d3] shadow-2xs transition-all shrink-0 cursor-pointer"
-              title="Ingresar valores personalizados de sensores"
-            >
-              <Sliders className="w-4.5 h-4.5" />
-            </button>
-
-            <input
-              type="text"
-              value={chatInput}
-              onChange={(e) => setChatInput(e.target.value)}
-              placeholder="Escribe valores (ej: 'Suelo 20, Temp 35, HR 40') o consulta dudas botánicas..."
-              disabled={isAskingRAG}
-              className="flex-1 bg-white text-[13px] px-4 py-3 rounded-2xl border border-[#dbe6d3] focus:outline-none focus:border-[#526b4a] text-[#22331d] placeholder:text-[#8ba087]"
-            />
-
-            <button
-              type="submit"
-              disabled={isAskingRAG || !chatInput.trim()}
-              className="bg-[#526b4a] hover:bg-[#43573c] disabled:opacity-50 text-white p-3 rounded-2xl shadow-2xs transition-all shrink-0 cursor-pointer active:scale-95"
-              title="Enviar al Chatbot"
-            >
-              <Send className="w-4.5 h-4.5" />
-            </button>
-          </form>
         </div>
-      )}
+      </div>
+    )}
 
       {/* TAB 2: BASE DE REGLAS DE MAMADANI (20 REGLAS) */}
       {activeSubTab === 'rules' && (

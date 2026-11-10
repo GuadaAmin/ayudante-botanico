@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Plus, MapPin, Check, Sparkles } from 'lucide-react';
+import { X, Plus, MapPin, Check, Sparkles, AlertTriangle } from 'lucide-react';
 import { CatalogSpecies, Specimen } from '../types';
 import { CATALOG_SPECIES } from '../data/botanicalData';
 
@@ -263,8 +263,8 @@ export const NewSpecimenModal: React.FC<NewSpecimenModalProps> = ({
           {/* Renderizado condicional del error de validación */}
           {errorMessage && (
             <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-xl text-[12.5px] mb-2 font-medium flex items-center gap-2">
-              <span className="text-xl">⚠️</span>
-              {errorMessage}
+              <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+              <span>{errorMessage}</span>
             </div>
           )}
 

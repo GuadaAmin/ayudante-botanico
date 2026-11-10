@@ -25,3 +25,75 @@
 ::-webkit-scrollbar-thumb:hover {
   background: #a9ba9f;
 }
+
+/* ANIMACIONES BOTÁNICAS DE FONDO Y COMPAÑERO BROTI */
+@keyframes floatLeaf1 {
+  0% { transform: translate(0, -30px) rotate(0deg); opacity: 0; }
+  20% { opacity: 0.32; }
+  80% { opacity: 0.32; }
+  100% { transform: translate(80px, 750px) rotate(160deg); opacity: 0; }
+}
+
+@keyframes floatLeaf2 {
+  0% { transform: translate(0, -40px) rotate(25deg); opacity: 0; }
+  25% { opacity: 0.28; }
+  75% { opacity: 0.28; }
+  100% { transform: translate(-100px, 800px) rotate(-140deg); opacity: 0; }
+}
+
+@keyframes floatLeaf3 {
+  0% { transform: translate(0, -20px) rotate(-20deg); opacity: 0; }
+  20% { opacity: 0.30; }
+  80% { opacity: 0.30; }
+  100% { transform: translate(60px, 700px) rotate(120deg); opacity: 0; }
+}
+
+@keyframes gentleSway {
+  0%, 100% { transform: rotate(0deg) scale(1); }
+  50% { transform: rotate(4deg) scale(1.02); }
+}
+
+@keyframes potBreathe {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-4px) scale(1.01); }
+}
+
+@keyframes leavesSway {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(5deg); }
+}
+
+@keyframes eyesBlink {
+  0%, 90%, 100% { transform: scaleY(1); }
+  95% { transform: scaleY(0.1); }
+}
+
+@keyframes antennaPulse {
+  0%, 100% { transform: scale(1); filter: drop-shadow(0 0 2px #4ade80); }
+  50% { transform: scale(1.15); filter: drop-shadow(0 0 8px #22c55e); }
+}
+
+@keyframes speechPop {
+  0% { transform: scale(0.85) translateY(6px); opacity: 0; }
+  100% { transform: scale(1) translateY(0); opacity: 1; }
+}
+
+@keyframes waterDroplets {
+  0% { transform: translateY(-15px); opacity: 0; }
+  50% { opacity: 1; }
+  100% { transform: translateY(35px); opacity: 0; }
+}
+
+.leaf-float-1 { animation: floatLeaf1 16s infinite ease-in-out; }
+.leaf-float-2 { animation: floatLeaf2 22s infinite ease-in-out 3s; }
+.leaf-float-3 { animation: floatLeaf3 18s infinite ease-in-out 7s; }
+.leaf-float-4 { animation: floatLeaf1 24s infinite ease-in-out 12s; }
+.leaf-float-5 { animation: floatLeaf2 19s infinite ease-in-out 9s; }
+
+.sway-slow { animation: gentleSway 8s infinite ease-in-out; }
+.biobot-idle { animation: potBreathe 4s infinite ease-in-out; }
+.biobot-leaves { animation: leavesSway 5s infinite ease-in-out; transform-origin: bottom center; }
+.biobot-eyes { animation: eyesBlink 4s infinite ease-in-out; transform-origin: center; }
+.antenna-glow { animation: antennaPulse 2.5s infinite ease-in-out; }
+.speech-enter { animation: speechPop 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
+.water-drop { animation: waterDroplets 1.2s infinite ease-in; }

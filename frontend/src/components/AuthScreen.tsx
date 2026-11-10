@@ -149,14 +149,24 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLoginSuccess }) => {
           </button>
         </form>
 
-        <div className="text-center pt-2 border-t border-[#edf3e8]">
+        <div className="text-center pt-2 border-t border-[#edf3e8] space-y-2.5">
+          <button
+            type="button"
+            onClick={() => {
+              onLoginSuccess('guest-token', 'Invitado');
+            }}
+            className="w-full bg-[#eef5eb] hover:bg-[#dfead7] text-[#2c4323] py-2.5 rounded-2xl text-[12.5px] font-bold border border-[#c4d7bd] transition-all cursor-pointer flex items-center justify-center gap-1.5"
+          >
+            <span>Continuar como Invitado (Modo Libre)</span>
+          </button>
+
           <button
             type="button"
             onClick={() => {
               setIsRegistering(!isRegistering);
               setError(null);
             }}
-            className="text-[12.5px] text-[#526b4a] hover:text-[#2d3e26] font-semibold cursor-pointer"
+            className="text-[12.5px] text-[#526b4a] hover:text-[#2d3e26] font-semibold cursor-pointer block mx-auto"
           >
             {isRegistering
               ? '¿Ya tienes una cuenta? Inicia sesión'
