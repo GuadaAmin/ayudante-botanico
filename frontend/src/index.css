@@ -97,3 +97,128 @@
 .antenna-glow { animation: antennaPulse 2.5s infinite ease-in-out; }
 .speech-enter { animation: speechPop 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
 .water-drop { animation: waterDroplets 1.2s infinite ease-in; }
+
+/* Delicadas animaciones v3: polen, rayos solares, Broti v3 y visualizaciones */
+@keyframes pollenDriftA {
+  0%   { transform: translate(0, 108vh) scale(0.7); opacity: 0; }
+  12%  { opacity: 0.72; }
+  50%  { transform: translate(26px, 52vh) scale(1.1); opacity: 0.52; }
+  88%  { opacity: 0.68; }
+  100% { transform: translate(-18px, -12vh) scale(0.8); opacity: 0; }
+}
+@keyframes pollenDriftB {
+  0%   { transform: translate(0, 106vh) scale(0.6); opacity: 0; }
+  15%  { opacity: 0.56; }
+  55%  { transform: translate(-34px, 46vh) scale(1.15); opacity: 0.38; }
+  85%  { opacity: 0.48; }
+  100% { transform: translate(20px, -10vh) scale(0.75); opacity: 0; }
+}
+@keyframes sunbeamSweep {
+  0%, 100% { transform: translateX(-8%) rotate(18deg); opacity: 0.22; }
+  50%      { transform: translateX(10%) rotate(18deg); opacity: 0.42; }
+}
+@keyframes heroKenBurns {
+  0%, 100% { transform: scale(1.02) translate(0, 0); }
+  50%      { transform: scale(1.09) translate(-1.2%, -0.8%); }
+}
+@keyframes spinSlow {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+@keyframes potExcited {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  25%      { transform: translateY(-4px) rotate(-2deg); }
+  75%      { transform: translateY(-3px) rotate(2deg); }
+}
+@keyframes leavesDroop {
+  0%, 100% { transform: rotate(-6deg) translateY(3px) scaleY(0.94); }
+  50%      { transform: rotate(-8deg) translateY(4px) scaleY(0.92); }
+}
+@keyframes flowerBloom {
+  0%, 100% { transform: scale(0.96) rotate(-3deg); }
+  50%      { transform: scale(1.08) rotate(4deg); }
+}
+@keyframes auraBreath {
+  0%, 100% { transform: scale(0.95); opacity: 0.42; }
+  50%      { transform: scale(1.08); opacity: 0.72; }
+}
+@keyframes floatSparkUp {
+  0%   { transform: translateY(4px) scale(0.6); opacity: 0; }
+  30%  { opacity: 1; }
+  100% { transform: translateY(-22px) scale(1.15); opacity: 0; }
+}
+@keyframes wavePulse {
+  0%, 100% { transform: scaleY(0.35); opacity: 0.55; }
+  50%      { transform: scaleY(1); opacity: 1; }
+}
+@keyframes tabFadeUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes lineDraw {
+  from { stroke-dashoffset: 520; }
+  to   { stroke-dashoffset: 0; }
+}
+@keyframes shimmerSweep {
+  0%   { transform: translateX(-120%) skewX(-18deg); }
+  100% { transform: translateX(220%) skewX(-18deg); }
+}
+@keyframes barGrow {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+@keyframes heightGrow {
+  from { transform: scaleY(0.15); opacity: 0.3; }
+  to   { transform: scaleY(1); opacity: 1; }
+}
+@keyframes beaconPing {
+  0%   { transform: scale(1); opacity: 0.7; }
+  75%, 100% { transform: scale(2.1); opacity: 0; }
+}
+
+.pollen-a { animation: pollenDriftA 18s infinite linear; }
+.pollen-b { animation: pollenDriftB 24s infinite linear; }
+.sunbeam-anim { animation: sunbeamSweep 14s infinite ease-in-out; }
+.ken-burns { animation: heroKenBurns 24s infinite ease-in-out; }
+.spin-slow { animation: spinSlow 24s infinite linear; }
+.biobot-excited { animation: potExcited 0.55s infinite ease-in-out; }
+.biobot-leaves-droop { animation: leavesDroop 4s infinite ease-in-out; transform-origin: bottom center; }
+.flower-bloom { animation: flowerBloom 3.8s infinite ease-in-out; transform-origin: center; }
+.aura-breath { animation: auraBreath 4s infinite ease-in-out; transform-origin: center; }
+.spark-up { animation: floatSparkUp 1.5s infinite ease-out; }
+.wave-bar { animation: wavePulse 0.9s infinite ease-in-out; transform-origin: bottom; }
+.tab-panel { animation: tabFadeUp 0.35s cubic-bezier(0.22, 1, 0.36, 1); }
+.svg-draw { stroke-dasharray: 520; animation: lineDraw 1.4s ease-out forwards; }
+.bar-grow { transform-origin: left center; animation: barGrow 0.9s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
+.height-grow { transform-origin: bottom center; animation: heightGrow 0.9s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
+.beacon-ping { animation: beaconPing 2.2s cubic-bezier(0, 0, 0.2, 1) infinite; }
+
+.btn-shimmer { position: relative; overflow: hidden; }
+.btn-shimmer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: 45%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.34), transparent);
+  transform: translateX(-140%) skewX(-18deg);
+  transition: transform 0.6s ease;
+  pointer-events: none;
+}
+.btn-shimmer:hover::after {
+  animation: shimmerSweep 0.85s ease forwards;
+}
+
+.zen-paused *,
+.zen-paused *::before,
+.zen-paused *::after {
+  animation-play-state: paused !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pollen-a, .pollen-b, .sunbeam-anim, .ken-burns, .spin-slow,
+  .leaf-float-1, .leaf-float-2, .leaf-float-3, .leaf-float-4, .leaf-float-5,
+  .sway-slow, .biobot-idle, .biobot-excited, .biobot-leaves, .biobot-leaves-droop,
+  .flower-bloom, .aura-breath, .spark-up, .wave-bar, .water-drop, .beacon-ping {
+    animation: none !important;
+  }
+}

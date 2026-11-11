@@ -16,7 +16,7 @@ import { AlertInfo, CatalogSpecies, PlantStatus, Specimen, RagDocument } from '.
 import { INITIAL_SPECIMENS } from './data/botanicalData';
 import { checkBackendHealth, apiClient } from './services/api';
 import { getAllCatalogSpecies, deleteCustomSpecies } from './services/customBotanicalStorage';
-import { LogOut } from 'lucide-react';
+import { LogOut, Sparkles, Pause, Play } from 'lucide-react';
 
 export default function App() {
   // Estado de Autenticación Multi-tenancy (por defecto activo para acceso inmediato)
@@ -32,6 +32,8 @@ export default function App() {
   // Navigation: Abre por defecto en el Chatbot SED
   const [activeTab, setActiveTab] = useState<TabType>('asesor');
   const [plantadasFilter, setPlantadasFilter] = useState<'all' | PlantStatus>('all');
+  const [showPollen, setShowPollen] = useState<boolean>(true);
+  const [zenPaused, setZenPaused] = useState<boolean>(false);
 
   // Backend Connectivity
   const [backendConnected, setBackendConnected] = useState<boolean | null>(null);
@@ -453,11 +455,29 @@ export default function App() {
 
   const activeAlertCount = specimens.filter((s) => !!s.activeAlert).length;
 
+  const avgTemp =
+    specimens.length > 0
+      ? specimens.reduce((sum, s) => sum + s.temperature, 0) / specimens.length
+      : 22;
+  const avgHumidity =
+    specimens.length > 0
+      ? specimens.reduce((sum, s) => sum + s.humidity, 0) / specimens.length
+      : 60;
+  const satVp = 0.6108 * Math.exp((17.27 * avgTemp) / (avgTemp + 237.3));
+  const vpdKpa = Math.max(0.2, +(satVp * (1 - avgHumidity / 100)).toFixed(1));
+  const vpdState =
+    vpdKpa >= 0.6 && vpdKpa <= 1.4
+      ? 'Óptimo'
+      : vpdKpa < 0.6
+      ? 'Húmedo'
+      : 'Seco';
+  const liveVpdLabel = `VPD ${vpdKpa} kPa · ${vpdState}`;
+
   // SI EL USUARIO NO ESTÁ AUTENTICADO: Renderiza exclusivamente la pantalla de Login/Registro
   if (!isAuthenticated) {
     return (
       <div className="relative min-h-screen bg-[#f1f6ee] overflow-hidden">
-        <BackgroundFoliage />
+        <BackgroundFoliage showPollen={showPollen} zenPaused={zenPaused} />
         {toastMessage && (
           <div className="fixed top-5 z-60 bg-[#22331d] text-white px-4 py-2.5 rounded-2xl shadow-xl text-[12.5px] font-medium flex items-center gap-2 border border-[#3e5635] animate-fadeIn">
             <span>{toastMessage}</span>
@@ -473,8 +493,8 @@ export default function App() {
   // SI ESTÁ AUTENTICADO: Renderiza el sistema completo con barra de sesión
   return (
     <div className="min-h-screen bg-[#f5f8f3] text-[#22331d] flex flex-col items-center justify-start sm:py-6 sm:px-4 selection:bg-[#c6dec0] relative overflow-x-hidden">
-      {/* Capa de Hojas Flotantes de Fondo Animadas */}
-      <BackgroundFoliage />
+      {/* Capa de Hojas Flotantes y Polen Animados */}
+      <BackgroundFoliage showPollen={showPollen} zenPaused={zenPaused} />
       {/* Toast Notification */}
       {toastMessage && (
         <div 
@@ -485,8 +505,38 @@ export default function App() {
         </div>
       )}
 
-      {/* Barra superior de control de usuario multi-tenancy */}
-      <div className="w-full max-w-5xl flex justify-end px-2 sm:px-0 mb-2">
+      {/* Barra superior de control ambiental y usuario multi-tenancy */}
+      <div className="w-full max-w-5xl flex flex-wrap items-center justify-between gap-2 px-2 sm:px-0 mb-2">
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setShowPollen((prev) => !prev)}
+            className={`px-3 py-1.5 rounded-2xl border text-[11.5px] font-semibold flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs ${
+              showPollen
+                ? 'bg-white/85 text-[#496342] border-[#d9e5d2] hover:bg-white'
+                : 'bg-[#eef4ea]/80 text-[#72876b] border-[#dce7d5]'
+            }`}
+            title="Activar o desactivar destellos de polen en el fondo"
+          >
+            <Sparkles className={`w-3.5 h-3.5 ${showPollen ? 'text-amber-500' : 'text-[#8ea187]'}`} />
+            <span>Polen {showPollen ? 'Activo' : 'Oculto'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setZenPaused((prev) => !prev)}
+            className={`px-3 py-1.5 rounded-2xl border text-[11.5px] font-semibold flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs ${
+              zenPaused
+                ? 'bg-amber-50/90 text-amber-800 border-amber-200'
+                : 'bg-white/85 text-[#496342] border-[#d9e5d2] hover:bg-white'
+            }`}
+            title="Pausar o reanudar animaciones ambientales (Modo Zen)"
+          >
+            {zenPaused ? <Play className="w-3.5 h-3.5" /> : <Pause className="w-3.5 h-3.5" />}
+            <span>{zenPaused ? 'Reanudar' : 'Modo Zen'}</span>
+          </button>
+        </div>
+
         <div className="bg-white/80 backdrop-blur-xs px-4 py-1.5 rounded-2xl border border-[#d9e5d2] shadow-xs flex items-center gap-3 text-[12px]">
           <span className="text-[#556d4e]">Sesión activa: <strong className="text-[#22331d]">{currentUsername || 'Usuario'}</strong></span>
           <button
@@ -509,6 +559,7 @@ export default function App() {
         <Header
           backendConnected={backendConnected}
           onRefreshBackend={verifyBackend}
+          vpdLabel={liveVpdLabel}
         />
 
         {/* Screen Content Area */}
@@ -525,6 +576,8 @@ export default function App() {
               onSelectSpecimen={(specimen) => setSelectedSpecimenForModal(specimen)}
               onNavigateToPlantadas={handleNavigateToPlantadasWithFilter}
               onOpenChatbot={() => setActiveTab('asesor')}
+              onWaterSpecimen={handleWaterSpecimen}
+              onResolvePhyto={handleResolvePhyto}
             />
           )}
 
@@ -556,6 +609,7 @@ export default function App() {
           {activeTab === 'catalogo' && (
             <CatalogScreen 
               catalogSpecies={catalogSpecies}
+              specimens={specimens}
               onSelectSpeciesToPlant={handlePlantFromCatalog}
               onOpenNewCustomSpeciesModal={() => setIsCustomSpeciesModalOpen(true)}
               onOpenRagDocModal={handleOpenRagModal}

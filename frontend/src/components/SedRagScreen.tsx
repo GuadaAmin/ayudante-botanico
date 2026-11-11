@@ -108,9 +108,13 @@ export const SedRagScreen: React.FC<SedRagScreenProps> = ({
   // Broti Bot Companion State
   const [isBrotiWatering, setIsBrotiWatering] = useState(false);
 
-  // Search filter in rules
+  // Search filter & Live Mamdani Simulator in rules
   const [ruleCategoryFilter, setRuleCategoryFilter] = useState<string>('all');
   const [ruleSearch, setRuleSearch] = useState('');
+  const [simHvs, setSimHvs] = useState<number>(22);
+  const [simTa, setSimTa] = useState<number>(34);
+  const [simHr, setSimHr] = useState<number>(42);
+  const [onlyFiredSimRules, setOnlyFiredSimRules] = useState<boolean>(false);
 
   const chatContainerRef = useRef<HTMLDivElement>(null);
 
@@ -504,6 +508,9 @@ export const SedRagScreen: React.FC<SedRagScreenProps> = ({
     setChatMessages((prev) => [...prev, confirmMsg]);
   };
 
+  const simulatedRules = determinarReglasDisparadas(simHvs, simTa, simHr);
+  const simulatedCodes = new Set(simulatedRules.map((r) => r.code));
+
   const filteredRules = SED_RULES.filter((r) => {
     const matchesCat = ruleCategoryFilter === 'all' || r.category === ruleCategoryFilter;
     const matchesSearch = 
@@ -511,7 +518,8 @@ export const SedRagScreen: React.FC<SedRagScreenProps> = ({
       r.name.toLowerCase().includes(ruleSearch.toLowerCase()) ||
       r.antecedent.toLowerCase().includes(ruleSearch.toLowerCase()) ||
       r.consequent.toLowerCase().includes(ruleSearch.toLowerCase());
-    return matchesCat && matchesSearch;
+    const matchesSim = !onlyFiredSimRules || simulatedCodes.has(r.code);
+    return matchesCat && matchesSearch && matchesSim;
   });
   
   return (
@@ -607,19 +615,31 @@ export const SedRagScreen: React.FC<SedRagScreenProps> = ({
             
             {/* Columna Izquierda: Broti Bot Companion */}
             <div className="lg:col-span-4">
-              <BrotiBot
-                mood={
-                  isBrotiWatering
-                    ? 'watering'
-                    : isAskingRAG
-                    ? 'thinking'
-                    : ((chatMessages[chatMessages.length - 1]?.diagnostic?.prioridadRiego ?? 0) > 65 || (currentSp?.irrigationPriority ?? 0) > 65)
-                    ? 'thirsty'
-                    : 'happy'
-                }
-                specimenName={currentSp?.name || 'Jacarandá'}
-                onWater={handleWaterFromBroti}
-              />
+              {(() => {
+                const latestDiag = chatMessages[chatMessages.length - 1]?.diagnostic;
+                const activeIrrigation = latestDiag?.prioridadRiego ?? currentSp?.irrigationPriority ?? 0;
+                const activePhyto = latestDiag?.riesgoFitosanitario ?? currentSp?.phytosanitaryRisk ?? 0;
+                const resolvedMood: BrotiMood = isBrotiWatering
+                  ? 'watering'
+                  : isAskingRAG
+                  ? 'thinking'
+                  : activePhyto >= 60 && activePhyto >= activeIrrigation
+                  ? 'phyto'
+                  : activeIrrigation > 65
+                  ? 'thirsty'
+                  : activePhyto >= 60
+                  ? 'phyto'
+                  : 'happy';
+                const resolvedMoisture = latestDiag?.hvs ?? currentSp?.soilMoisture ?? 62;
+                return (
+                  <BrotiBot
+                    mood={resolvedMood}
+                    specimenName={currentSp?.name || 'Jacarandá'}
+                    soilMoisture={resolvedMoisture}
+                    onWater={handleWaterFromBroti}
+                  />
+                );
+              })()}
             </div>
 
             {/* Columna Derecha: Chat Feed y Barra de Entrada */}
@@ -745,6 +765,25 @@ export const SedRagScreen: React.FC<SedRagScreenProps> = ({
                                 <strong className={`font-bold text-[12.5px] ${diag.hr > 80 ? 'text-[#d97706]' : 'text-[#21331c]'}`}>
                                   {diag.hr}%
                                 </strong>
+                              </div>
+                            </div>
+
+                            {/* Medidor Espectral de Humedad (HVS) */}
+                            <div className="bg-white/85 px-3 py-2 rounded-xl border border-[#dbe8d6]">
+                              <div className="flex items-center justify-between text-[10px] font-semibold text-[#5a7253] mb-1.5">
+                                <span>Espectro HVS (Seco · Óptimo · Saturado)</span>
+                                <span className="font-bold text-[#24391e]">{diag.hvs}%</span>
+                              </div>
+                              <div className="relative h-2 rounded-full bg-gradient-to-r from-rose-400 via-emerald-400 to-sky-400">
+                                <div
+                                  className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3.5 h-3.5 rounded-full bg-white border-2 border-[#253b1f] shadow-xs transition-all duration-500"
+                                  style={{ left: `${Math.max(4, Math.min(96, diag.hvs))}%` }}
+                                />
+                              </div>
+                              <div className="flex justify-between text-[9px] text-[#758a6d] mt-1 font-medium">
+                                <span>0% Seco</span>
+                                <span>50% Óptimo</span>
+                                <span>100% Saturado</span>
                               </div>
                             </div>
 
@@ -995,7 +1034,106 @@ export const SedRagScreen: React.FC<SedRagScreenProps> = ({
 
       {/* TAB 2: BASE DE REGLAS DE MAMADANI (20 REGLAS) */}
       {activeSubTab === 'rules' && (
-        <div className="space-y-3">
+        <div className="space-y-3 tab-panel">
+          {/* Simulador Vivo de Reglas Mamdani */}
+          <div className="bg-gradient-to-br from-[#f8fbf5] to-[#eef5e8] rounded-2xl p-4 border border-[#d6e4ce] shadow-2xs space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-white border border-[#d6e4ce] flex items-center justify-center text-[#4f6d43] shadow-2xs">
+                  <Sliders className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-[13.5px] font-bold text-[#22341d]">
+                    Simulador Vivo de Reglas Mamdani
+                  </h3>
+                  <p className="text-[11px] text-[#5c7255]">
+                    Mové HVS, TA y HR para ver en tiempo real qué reglas se disparan
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-[#4f6d43] text-white">
+                  {simulatedRules.length} {simulatedRules.length === 1 ? 'regla disparada' : 'reglas disparadas'}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setOnlyFiredSimRules((prev) => !prev)}
+                  className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-all cursor-pointer ${
+                    onlyFiredSimRules
+                      ? 'bg-emerald-600 text-white border-emerald-600'
+                      : 'bg-white text-[#486240] border-[#cfe0c6] hover:bg-[#f2f7ee]'
+                  }`}
+                >
+                  {onlyFiredSimRules ? 'Mostrando solo disparadas' : 'Filtrar solo disparadas'}
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-white/80 p-3 rounded-xl border border-[#e0ebd9]">
+              <label className="block space-y-1">
+                <div className="flex justify-between text-[11px] font-semibold text-[#475e40]">
+                  <span>Humedad Suelo (HVS)</span>
+                  <span className="font-mono font-bold text-[#20331b]">{simHvs}%</span>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  value={simHvs}
+                  onChange={(e) => setSimHvs(Number(e.target.value))}
+                  className="w-full accent-[#526b4a] cursor-pointer"
+                />
+              </label>
+              <label className="block space-y-1">
+                <div className="flex justify-between text-[11px] font-semibold text-[#475e40]">
+                  <span>Temperatura (TA)</span>
+                  <span className="font-mono font-bold text-[#20331b]">{simTa}°C</span>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={45}
+                  value={simTa}
+                  onChange={(e) => setSimTa(Number(e.target.value))}
+                  className="w-full accent-[#d97706] cursor-pointer"
+                />
+              </label>
+              <label className="block space-y-1">
+                <div className="flex justify-between text-[11px] font-semibold text-[#475e40]">
+                  <span>Humedad Relativa (HR)</span>
+                  <span className="font-mono font-bold text-[#20331b]">{simHr}%</span>
+                </div>
+                <input
+                  type="range"
+                  min={10}
+                  max={100}
+                  value={simHr}
+                  onChange={(e) => setSimHr(Number(e.target.value))}
+                  className="w-full accent-[#0284c7] cursor-pointer"
+                />
+              </label>
+            </div>
+
+            {simulatedRules.length > 0 ? (
+              <div className="flex items-center gap-1.5 flex-wrap text-[11px]">
+                <span className="font-semibold text-[#4a6243]">Activas ahora:</span>
+                {simulatedRules.map((sr) => (
+                  <span
+                    key={sr.id}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-100/90 text-emerald-800 border border-emerald-200 font-mono font-bold text-[10.5px]"
+                  >
+                    <Sparkles className="w-3 h-3" />
+                    {sr.code}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[11px] text-[#647a5d]">
+                Ninguna regla crítica activada con esta combinación (condición nominal estable).
+              </p>
+            )}
+          </div>
+
           <div className="bg-white rounded-2xl p-3.5 border border-[#dce7d5] flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
             <div className="flex items-center gap-1.5 overflow-x-auto">
               {['all', 'Riego', 'Fitosanitario'].map((cat) => (
@@ -1026,25 +1164,41 @@ export const SedRagScreen: React.FC<SedRagScreenProps> = ({
           </div>
 
           <div className="space-y-2.5">
-            {filteredRules.map((rule) => (
+            {filteredRules.map((rule) => {
+              const isFired = simulatedCodes.has(rule.code);
+              return (
               <div
                 key={rule.id}
-                className="bg-white rounded-2xl p-4 border border-[#dce7d5] shadow-2xs space-y-2"
+                className={`rounded-2xl p-4 border shadow-2xs space-y-2 transition-all ${
+                  isFired
+                    ? 'bg-emerald-50/45 border-emerald-400 ring-1 ring-emerald-200'
+                    : 'bg-white border-[#dce7d5]'
+                }`}
               >
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
                   <div className="flex items-center gap-2">
-                    <span className="font-mono text-[11px] font-bold px-2 py-0.5 rounded-md bg-[#dfead7] text-[#273820]">
+                    <span className={`font-mono text-[11px] font-bold px-2 py-0.5 rounded-md ${
+                      isFired ? 'bg-emerald-600 text-white' : 'bg-[#dfead7] text-[#273820]'
+                    }`}>
                       {rule.code}
                     </span>
                     <span className="text-[13px] font-bold text-[#24351e]">
                       {rule.name}
                     </span>
                   </div>
-                  <span className={`text-[11px] px-2.5 py-0.5 rounded-full font-semibold ${
-                    rule.category === 'Riego' ? 'bg-[#e0f2fe] text-[#0369a1]' : 'bg-[#fef3c7] text-[#b45309]'
-                  }`}>
-                    {rule.category}
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    {isFired && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
+                        <CheckCircle2 className="w-3 h-3" />
+                        Disparada
+                      </span>
+                    )}
+                    <span className={`text-[11px] px-2.5 py-0.5 rounded-full font-semibold ${
+                      rule.category === 'Riego' ? 'bg-[#e0f2fe] text-[#0369a1]' : 'bg-[#fef3c7] text-[#b45309]'
+                    }`}>
+                      {rule.category}
+                    </span>
+                  </div>
                 </div>
 
                 <div className="bg-[#f6f9f3] p-3 rounded-xl border border-[#e5edd4] font-mono text-[12px] text-[#203119] space-y-0.5">
@@ -1061,7 +1215,8 @@ export const SedRagScreen: React.FC<SedRagScreenProps> = ({
                   <span>{rule.recommendedAction}</span>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

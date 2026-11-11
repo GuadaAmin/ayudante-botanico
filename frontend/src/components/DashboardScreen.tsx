@@ -1,6 +1,20 @@
-import React from 'react';
-import { ChevronRight, Plus, Droplets, ShieldAlert, Sparkles, CheckCircle2, Bot } from 'lucide-react';
-import { AlertInfo, Specimen } from '../types';
+import React, { useMemo, useState } from 'react';
+import {
+  Droplets,
+  Thermometer,
+  Wind,
+  AlertTriangle,
+  CheckCircle2,
+  ShieldAlert,
+  BookOpen,
+  Plus,
+  ArrowRight,
+  Sparkles,
+  MapPin,
+  Activity,
+  Bot,
+} from 'lucide-react';
+import { AlertInfo, PlantStatus, Specimen } from '../types';
 
 interface DashboardScreenProps {
   specimens: Specimen[];
@@ -8,9 +22,13 @@ interface DashboardScreenProps {
   onOpenCatalog: () => void;
   onOpenNewSpecimen: () => void;
   onSelectSpecimen: (specimen: Specimen) => void;
-  onNavigateToPlantadas: (filter?: 'all' | 'stable' | 'attention' | 'critical') => void;
-  onOpenChatbot?: () => void;
+  onNavigateToPlantadas: (filter: PlantStatus | 'all') => void;
+  onOpenChatbot: () => void;
+  onWaterSpecimen?: (specimenId: string) => void;
+  onResolvePhyto?: (specimenId: string) => void;
 }
+
+const CHART_HOURS = ['00h', '04h', '08h', '12h', '16h', '20h', 'Ahora'];
 
 export const DashboardScreen: React.FC<DashboardScreenProps> = ({
   specimens,
@@ -19,328 +37,746 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
   onOpenNewSpecimen,
   onSelectSpecimen,
   onNavigateToPlantadas,
-  onOpenChatbot
+  onOpenChatbot,
+  onWaterSpecimen,
+  onResolvePhyto,
 }) => {
-  // Compute counts from current specimens
-  const stableCount = specimens.filter((s) => s.status === 'stable').length;
-  const attentionCount = specimens.filter((s) => s.status === 'attention').length;
-  const criticalCount = specimens.filter((s) => s.status === 'critical').length;
-  const totalMonitored = specimens.length;
+  const [chartMetric, setChartMetric] = useState<'hvs' | 'ta'>('hvs');
 
-  // Gather active alerts (>65% priority or active alert object)
-  const activeAlerts: { alert: AlertInfo; specimen: Specimen }[] = [];
-  specimens.forEach((specimen) => {
-    if (specimen.activeAlert) {
-      activeAlerts.push({ alert: specimen.activeAlert, specimen });
+  const stats = useMemo(() => {
+    const total = specimens.length || 1;
+    const stable = specimens.filter((s) => s.status === 'stable');
+    const attention = specimens.filter((s) => s.status === 'attention');
+    const critical = specimens.filter((s) => s.status === 'critical');
+
+    const avgMoisture = Math.round(
+      specimens.reduce((acc, s) => acc + s.soilMoisture, 0) / total
+    );
+    const avgTemp = +(
+      specimens.reduce((acc, s) => acc + s.temperature, 0) / total
+    ).toFixed(1);
+    const avgHumidity = Math.round(
+      specimens.reduce((acc, s) => acc + s.humidity, 0) / total
+    );
+
+    const rawScore =
+      specimens.length === 0
+        ? 100
+        : Math.round(((stable.length + attention.length * 0.55) / specimens.length) * 100);
+
+    const activeAlerts = specimens.filter(
+      (s) => s.activeAlert || s.status !== 'stable'
+    );
+
+    const sectorMap = new Map<string, Specimen[]>();
+    specimens.forEach((sp) => {
+      const key = sp.location || 'Sector General';
+      const existing = sectorMap.get(key) || [];
+      existing.push(sp);
+      sectorMap.set(key, existing);
+    });
+
+    return {
+      total: specimens.length,
+      stableCount: stable.length,
+      attentionCount: attention.length,
+      criticalCount: critical.length,
+      avgMoisture,
+      avgTemp,
+      avgHumidity,
+      healthScore: Math.max(0, Math.min(100, rawScore)),
+      activeAlerts,
+      sectors: Array.from(sectorMap.entries()),
+    };
+  }, [specimens]);
+
+  // Curva de tendencia 24h anclada en los promedios en vivo
+  const chartData = useMemo(() => {
+    if (chartMetric === 'hvs') {
+      const anchor = stats.avgMoisture || 54;
+      const points = [
+        Math.min(95, anchor + 9),
+        Math.min(95, anchor + 11),
+        Math.min(95, anchor + 6),
+        Math.max(12, anchor - 5),
+        Math.max(12, anchor - 8),
+        Math.max(12, anchor - 2),
+        anchor,
+      ];
+      return { points, unit: '%', minBound: 0, maxBound: 100, stroke: '#0ea5e9', fill: 'rgba(14, 165, 233, 0.14)' };
     }
-  });
+    const anchor = stats.avgTemp || 23.5;
+    const points = [
+      Math.max(10, +(anchor - 4.2).toFixed(1)),
+      Math.max(10, +(anchor - 5.1).toFixed(1)),
+      Math.max(10, +(anchor - 2.3).toFixed(1)),
+      Math.min(44, +(anchor + 3.4).toFixed(1)),
+      Math.min(44, +(anchor + 4.1).toFixed(1)),
+      Math.min(44, +(anchor + 1.5).toFixed(1)),
+      anchor,
+    ];
+    return { points, unit: '°C', minBound: 8, maxBound: 45, stroke: '#d97706', fill: 'rgba(245, 158, 11, 0.15)' };
+  }, [chartMetric, stats.avgMoisture, stats.avgTemp]);
 
-  const urgentCount = criticalCount + (attentionCount > 0 ? 1 : 0);
+  const svgCoords = useMemo(() => {
+    const w = 320;
+    const h = 104;
+    const padX = 16;
+    const padY = 14;
+    const innerW = w - padX * 2;
+    const innerH = h - padY * 2;
+    const range = Math.max(1, chartData.maxBound - chartData.minBound);
+
+    return chartData.points.map((val, idx) => {
+      const x = padX + (idx / (chartData.points.length - 1)) * innerW;
+      const y = padY + innerH - ((val - chartData.minBound) / range) * innerH;
+      return { x: +x.toFixed(1), y: +y.toFixed(1), val };
+    });
+  }, [chartData]);
+
+  const linePath = svgCoords
+    .map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`)
+    .join(' ');
+  const areaPath =
+    svgCoords.length > 0
+      ? `${linePath} L ${svgCoords[svgCoords.length - 1].x} 96 L ${svgCoords[0].x} 96 Z`
+      : '';
+
+  const ringRadius = 38;
+  const ringCircumference = 2 * Math.PI * ringRadius;
+  const ringOffset = ringCircumference * (1 - stats.healthScore / 100);
+
+  const ringStroke =
+    stats.healthScore >= 80
+      ? '#3d7a47'
+      : stats.healthScore >= 55
+      ? '#d97706'
+      : '#e11d48';
 
   return (
-    <div className="space-y-4 pb-4">
-      {specimens.length === 0 && (
-        <div className="bg-white rounded-3xl p-8 text-center border border-[#dce7d5] space-y-3 my-4">
-          <div className="w-12 h-12 bg-[#e2f3df] text-[#3b5731] rounded-2xl mx-auto flex items-center justify-center">
-            <Sparkles className="w-6 h-6" />
-          </div>
-          <h3 className="font-botanical text-[20px] font-bold text-[#22371c]">
-            Tu jardín botánico está vacío
-          </h3>
-          <p className="text-[13px] text-[#556c4e] max-w-md mx-auto">
-            Comienza a registrar tus propios ejemplares para que el Sistema Experto Difuso (SED) evalúe su telemetría y te asista con el recomendador RAG.
-          </p>
-          <button
-            onClick={onOpenNewSpecimen}
-            className="bg-[#526b4a] hover:bg-[#43573c] text-white py-2.5 px-5 rounded-2xl font-bold text-[13px] inline-flex items-center gap-2 shadow-xs transition-all cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Registrar mi primer ejemplar</span>
-          </button>
-        </div>
-      )}
-      {/* SEMÁFORO GENERAL HERO BANNER WITH BOTANICAL GARDEN BACKGROUND */}
-      <div 
-        id="semaforo-general-card"
-        className="relative overflow-hidden rounded-[26px] p-6 border border-[#2d4626]/20 shadow-md text-white min-h-[165px] flex flex-col justify-between"
-      >
-        {/* Real Botanical Garden Photo */}
-        <img
-          src="https://images.unsplash.com/photo-1585320806297-9794b3e4eeae?auto=format&fit=crop&w=1200&q=80"
-          alt="Jardín Botánico y Vivero de Flores"
-          referrerPolicy="no-referrer"
-          className="absolute inset-0 w-full h-full object-cover object-center"
+    <div className="space-y-4 pb-6 tab-panel">
+      {/* Hero Luminoso Botánico */}
+      <section className="relative overflow-hidden rounded-3xl border border-[#d6e4ce] bg-gradient-to-br from-[#f8fbf5] via-white to-[#ebf3e4] p-5 sm:p-6 shadow-sm">
+        {/* Fondo sutil en movimiento */}
+        <div
+          className="ken-burns pointer-events-none absolute -right-12 -top-12 w-72 h-72 rounded-full opacity-55"
+          style={{
+            background:
+              'radial-gradient(circle, rgba(168, 206, 152, 0.36) 0%, rgba(255,255,255,0) 70%)',
+          }}
         />
-        {/* Gentle dark gradient for optimal contrast and readability */}
-        <div className="absolute inset-0 bg-gradient-to-r from-[#132411]/95 via-[#1a2e16]/85 to-[#132411]/55" />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-black/20" />
+        <div
+          className="sunbeam-anim pointer-events-none absolute -top-24 left-1/3 w-40 h-96 blur-2xl opacity-30"
+          style={{
+            background: 'linear-gradient(180deg, rgba(253, 230, 138, 0.45), transparent)',
+          }}
+        />
 
-        <div className="relative z-10">
-          <div className="flex items-center justify-between gap-2 flex-wrap">
-            <span className="text-[10.5px] font-bold uppercase tracking-widest bg-white/20 backdrop-blur-md px-2.5 py-0.5 rounded-full text-emerald-100 border border-white/10">
-              Semáforo General del Jardín
-            </span>
-            <div className="flex items-center gap-1.5 bg-black/40 backdrop-blur-md px-2.5 py-0.5 rounded-full text-[11px] font-medium text-emerald-300 border border-white/10">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span>SED Activo</span>
+        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-5">
+          <div className="space-y-3 max-w-xl">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/90 border border-[#d5e3cd] text-[11px] font-semibold text-[#47643e] shadow-2xs">
+              <span className="relative flex w-2 h-2">
+                <span className="beacon-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+              </span>
+              <span>Monitor Fisiológico en Vivo</span>
+            </div>
+
+            <div>
+              <h2 className="font-botanical text-2xl sm:text-3xl font-bold text-[#22331d] tracking-tight">
+                Panorama del Invernadero
+              </h2>
+              <p className="text-xs sm:text-sm text-[#576d50] mt-1 leading-relaxed">
+                Supervisando{' '}
+                <strong className="text-[#273c21]">{stats.total} ejemplares vivos</strong>{' '}
+                con inferencia difusa Mamdani y alertas tempranas en tiempo real.
+              </p>
+            </div>
+
+            {/* Microclima promedio */}
+            <div className="flex flex-wrap gap-2 pt-1">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/90 border border-[#dbe7d3] text-xs font-medium text-[#304729]">
+                <Droplets className="w-3.5 h-3.5 text-sky-600" />
+                <span>Suelo prom:</span>
+                <strong className="text-[#1f321a]">{stats.avgMoisture}%</strong>
+              </div>
+              <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/90 border border-[#dbe7d3] text-xs font-medium text-[#304729]">
+                <Thermometer className="w-3.5 h-3.5 text-amber-600" />
+                <span>Temp media:</span>
+                <strong className="text-[#1f321a]">{stats.avgTemp}°C</strong>
+              </div>
+              <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/90 border border-[#dbe7d3] text-xs font-medium text-[#304729]">
+                <Wind className="w-3.5 h-3.5 text-emerald-600" />
+                <span>HR media:</span>
+                <strong className="text-[#1f321a]">{stats.avgHumidity}%</strong>
+              </div>
             </div>
           </div>
-          <h2 className="font-botanical text-[30px] font-bold text-white leading-tight mt-2 drop-shadow-sm">
-            Estado del Jardín
-          </h2>
-          <p className="text-[13px] text-emerald-50/90 mt-1 max-w-[88%] leading-snug drop-shadow-xs">
-            {totalMonitored} ejemplares botánicos bajo monitoreo. {urgentCount > 0 ? `${urgentCount} requieren atención inmediata según las reglas difusas.` : 'Todos los canteros y ejemplares en balance hídrico óptimo.'}
-          </p>
-        </div>
 
-        {/* Quick status pill bar inside hero */}
-        <div className="relative z-10 mt-3 pt-2.5 border-t border-white/15 flex items-center gap-4 text-[11.5px] font-medium text-white/90 flex-wrap">
-          <span className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-[#10b981]" /> {stableCount} Óptimos
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-[#f59e0b]" /> {attentionCount} En Observación
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-[#ef4444]" /> {criticalCount} Críticos
-          </span>
-        </div>
-      </div>
-
-      {/* METRIC COUNTERS (Estables, Atención, Crítico) */}
-      <div id="status-summary-grid" className="grid grid-cols-3 gap-2.5">
-        {/* Estables */}
-        <button
-          id="metric-estables-btn"
-          onClick={() => onNavigateToPlantadas('stable')}
-          className="bg-white rounded-2xl py-3 px-2 text-center border border-[#e3ebd9] shadow-2xs hover:border-[#b4caa7] transition-all group"
-        >
-          <span className="block text-[12px] font-medium text-[#64795c] group-hover:text-[#2d4224]">
-            Estables
-          </span>
-          <span className="block text-[24px] font-bold text-[#23351d] my-0.5 leading-none">
-            {stableCount}
-          </span>
-          <div className="flex justify-center mt-1">
-            <span className="w-2.5 h-2.5 rounded-full bg-[#10b981]" />
-          </div>
-        </button>
-
-        {/* Atención */}
-        <button
-          id="metric-atencion-btn"
-          onClick={() => onNavigateToPlantadas('attention')}
-          className="bg-white rounded-2xl py-3 px-2 text-center border border-[#e3ebd9] shadow-2xs hover:border-[#fcd34d] transition-all group"
-        >
-          <span className="block text-[12px] font-medium text-[#64795c] group-hover:text-[#92400e]">
-            Atención
-          </span>
-          <span className="block text-[24px] font-bold text-[#d97706] my-0.5 leading-none">
-            {attentionCount}
-          </span>
-          <div className="flex justify-center mt-1">
-            <span className="w-2.5 h-2.5 rounded-full bg-[#f59e0b]" />
-          </div>
-        </button>
-
-        {/* Crítico */}
-        <button
-          id="metric-critico-btn"
-          onClick={() => onNavigateToPlantadas('critical')}
-          className="bg-white rounded-2xl py-3 px-2 text-center border border-[#e3ebd9] shadow-2xs hover:border-[#fca5a5] transition-all group"
-        >
-          <span className="block text-[12px] font-medium text-[#64795c] group-hover:text-[#991b1b]">
-            Crítico
-          </span>
-          <span className="block text-[24px] font-bold text-[#dc2626] my-0.5 leading-none">
-            {criticalCount}
-          </span>
-          <div className="flex justify-center mt-1">
-            <span className="w-2.5 h-2.5 rounded-full bg-[#ef4444]" />
-          </div>
-        </button>
-      </div>
-
-      {/* ACCESO DESTACADO AL CHATBOT SED */}
-      {onOpenChatbot && (
-        <div 
-          id="chatbot-entry-card"
-          onClick={onOpenChatbot}
-          className="bg-gradient-to-r from-[#21331c] via-[#2a4324] to-[#3a5830] text-white rounded-2xl p-4 shadow-sm border border-[#23351d]/40 flex items-center justify-between gap-3 cursor-pointer hover:shadow-md hover:scale-[1.005] transition-all group"
-        >
-          <div className="flex items-center gap-3.5 min-w-0">
-            <div className="w-10 h-10 rounded-2xl bg-white/15 backdrop-blur-md flex items-center justify-center shrink-0 border border-white/20 group-hover:bg-white/25 transition-colors">
-              <Bot className="w-5 h-5 text-emerald-300 animate-pulse" />
-            </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-[14px] text-white">Chatbot Experto SED</span>
-                <span className="bg-emerald-400/20 border border-emerald-400/30 text-emerald-200 text-[9.5px] font-semibold px-2 py-0.5 rounded-full uppercase tracking-wider">
-                  Mamdani + RAG
+          {/* Anillo de Salud Global */}
+          <div className="shrink-0 flex items-center gap-4 bg-white/85 backdrop-blur-xs border border-[#d9e7d1] rounded-2xl p-3.5 shadow-2xs self-start md:self-auto">
+            <div className="relative w-24 h-24 flex items-center justify-center">
+              <svg viewBox="0 0 96 96" className="w-24 h-24 -rotate-90">
+                <circle
+                  cx="48"
+                  cy="48"
+                  r={ringRadius}
+                  fill="none"
+                  stroke="#ebf2e6"
+                  strokeWidth="8"
+                />
+                <circle
+                  cx="48"
+                  cy="48"
+                  r={ringRadius}
+                  fill="none"
+                  stroke={ringStroke}
+                  strokeWidth="8"
+                  strokeLinecap="round"
+                  strokeDasharray={ringCircumference}
+                  strokeDashoffset={ringOffset}
+                  style={{ transition: 'stroke-dashoffset 0.8s ease' }}
+                />
+              </svg>
+              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <span className="font-botanical text-xl font-bold text-[#22331d]">
+                  {stats.healthScore}%
+                </span>
+                <span className="text-[9px] uppercase font-bold tracking-wider text-[#62785a]">
+                  Índice
                 </span>
               </div>
-              <p className="text-[11.5px] text-emerald-100/80 truncate mt-0.5">
-                Chatea con el experto difuso, prueba tus valores o haz consultas de botánica
+            </div>
+
+            <div className="text-xs space-y-1">
+              <p className="font-bold text-[#23351d]">Salud Global</p>
+              <p className="text-[#5e7457] max-w-[140px] leading-snug">
+                {stats.criticalCount > 0
+                  ? `${stats.criticalCount} ejemplar requiere atención prioritaria.`
+                  : stats.attentionCount > 0
+                  ? `${stats.attentionCount} ejemplar bajo observación preventiva.`
+                  : 'Todos tus sectores operan dentro del rango óptimo.'}
               </p>
             </div>
           </div>
+        </div>
+      </section>
+
+      {/* Semáforo de Estados con Barras Animadas */}
+      <section
+        id="semaforo-general-card"
+        className="bg-white/90 rounded-2xl p-4 sm:p-5 border border-[#dce7d5] shadow-2xs space-y-3.5"
+      >
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Activity className="w-4 h-4 text-[#526b4a]" />
+            <h3 className="font-bold text-sm text-[#22331d]">Semáforo General</h3>
+          </div>
           <button
             type="button"
-            className="shrink-0 bg-white hover:bg-emerald-50 text-[#21331c] text-[11.5px] font-bold px-3 py-1.5 rounded-xl shadow-xs transition-all flex items-center gap-1 cursor-pointer"
+            onClick={() => onNavigateToPlantadas('all')}
+            className="text-xs font-semibold text-[#4f6d43] hover:text-[#2a4124] inline-flex items-center gap-1 cursor-pointer"
           >
-            <span>Conversar</span>
-            <ChevronRight className="w-3.5 h-3.5 stroke-[2.5]" />
+            <span>Ver Plantadas</span>
+            <ArrowRight className="w-3.5 h-3.5" />
           </button>
         </div>
-      )}
 
-      {/* SECTION TITLE: Alertas SED Activas */}
-      <div className="pt-2 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <h3 className="text-[15px] font-bold text-[#21331c] tracking-tight">
-            Alertas SED Activas
-          </h3>
-          <span 
-            id="alerts-count-badge"
-            className="w-5 h-5 rounded-full bg-[#536b4a] text-white text-[11px] font-bold flex items-center justify-center"
+        <div id="status-summary-grid" className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {/* Estables */}
+          <button
+            id="metric-estables-btn"
+            type="button"
+            onClick={() => onNavigateToPlantadas('stable')}
+            className="text-left p-3.5 rounded-2xl bg-[#f5faf2] border border-[#dcead4] hover:border-emerald-400 transition-all cursor-pointer group"
           >
-            {activeAlerts.length}
-          </span>
-        </div>
-        <span className="text-[12px] font-medium text-[#6b8064]">
-          Prioridad &gt; 65%
-        </span>
-      </div>
-
-      {/* ALERT CARDS LIST */}
-      <div id="alerts-list-container" className="space-y-2.5">
-        {activeAlerts.length === 0 ? (
-          <div className="p-6 bg-white rounded-2xl text-center border border-[#e2ebd9]">
-            <CheckCircle2 className="w-8 h-8 mx-auto text-[#10b981] mb-2" />
-            <p className="text-[14px] font-semibold text-[#24351e]">
-              ¡Sin alertas críticas activas!
-            </p>
-            <p className="text-[12px] text-[#697d62] mt-1">
-              Todos los ejemplares se encuentran dentro de los rangos óptimos calculados por el SED.
-            </p>
-          </div>
-        ) : (
-          activeAlerts.map(({ alert, specimen }) => {
-            const isCritical = alert.severity === 'critical';
-            const isPhyto = alert.type === 'phytosanitary';
-
-            return (
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-xs font-bold text-emerald-800 flex items-center gap-1.5">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                Estables
+              </span>
+              <span className="text-lg font-bold text-[#1f351a] font-botanical">
+                {stats.stableCount}
+              </span>
+            </div>
+            <div className="w-full h-1.5 bg-emerald-100 rounded-full overflow-hidden">
               <div
-                key={alert.id}
-                id={`alert-card-${alert.id}`}
-                onClick={() => onOpenAlert(alert, specimen)}
-                className="group relative bg-white rounded-2xl p-3.5 border border-[#e2ebd9] shadow-2xs hover:border-[#b8ccae] hover:shadow-xs transition-all cursor-pointer"
+                className="bar-grow h-full bg-emerald-500 rounded-full"
+                style={{
+                  width: `${stats.total ? Math.round((stats.stableCount / stats.total) * 100) : 0}%`,
+                }}
+              />
+            </div>
+            <p className="text-[10.5px] text-emerald-700/80 mt-1.5">
+              Riego y vitalidad nominal
+            </p>
+          </button>
+
+          {/* Atención */}
+          <button
+            id="metric-atencion-btn"
+            type="button"
+            onClick={() => onNavigateToPlantadas('attention')}
+            className="text-left p-3.5 rounded-2xl bg-[#fffaf0] border border-[#f6e3ba] hover:border-amber-400 transition-all cursor-pointer group"
+          >
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-xs font-bold text-amber-800 flex items-center gap-1.5">
+                <AlertTriangle className="w-4 h-4 text-amber-600" />
+                En Atención
+              </span>
+              <span className="text-lg font-bold text-amber-900 font-botanical">
+                {stats.attentionCount}
+              </span>
+            </div>
+            <div className="w-full h-1.5 bg-amber-100 rounded-full overflow-hidden">
+              <div
+                className="bar-grow h-full bg-amber-500 rounded-full"
+                style={{
+                  width: `${stats.total ? Math.round((stats.attentionCount / stats.total) * 100) : 0}%`,
+                }}
+              />
+            </div>
+            <p className="text-[10.5px] text-amber-800/80 mt-1.5">
+              Monitoreo preventivo activo
+            </p>
+          </button>
+
+          {/* Críticas */}
+          <button
+            id="metric-critico-btn"
+            type="button"
+            onClick={() => onNavigateToPlantadas('critical')}
+            className="text-left p-3.5 rounded-2xl bg-[#fff4f5] border border-[#f7cfd5] hover:border-rose-400 transition-all cursor-pointer group"
+          >
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-xs font-bold text-rose-800 flex items-center gap-1.5">
+                <ShieldAlert className="w-4 h-4 text-rose-600" />
+                Críticas
+              </span>
+              <span className="text-lg font-bold text-rose-900 font-botanical">
+                {stats.criticalCount}
+              </span>
+            </div>
+            <div className="w-full h-1.5 bg-rose-100 rounded-full overflow-hidden">
+              <div
+                className="bar-grow h-full bg-rose-500 rounded-full"
+                style={{
+                  width: `${stats.total ? Math.round((stats.criticalCount / stats.total) * 100) : 0}%`,
+                }}
+              />
+            </div>
+            <p className="text-[10.5px] text-rose-800/80 mt-1.5">
+              Acción inmediata sugerida
+            </p>
+          </button>
+        </div>
+      </section>
+
+      {/* Analítica 24h + Mapa Vivo de Sectores */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+        {/* Curva 24h */}
+        <section className="lg:col-span-7 bg-white/90 rounded-2xl p-4 sm:p-5 border border-[#dce7d5] shadow-2xs flex flex-col justify-between gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 className="font-bold text-sm text-[#22331d]">
+                Curva de Tendencia 24h
+              </h3>
+              <p className="text-[11px] text-[#607659]">
+                Oscilación diurna del jardín calibrada al sensor actual
+              </p>
+            </div>
+            <div className="inline-flex p-0.5 rounded-xl bg-[#eef4ea] border border-[#d6e3cd]">
+              <button
+                type="button"
+                onClick={() => setChartMetric('hvs')}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${
+                  chartMetric === 'hvs'
+                    ? 'bg-white text-[#23361e] shadow-2xs'
+                    : 'text-[#5a7153]'
+                }`}
               >
-                <div className="flex items-start justify-between gap-3">
-                  {/* Botanical flower/plant thumbnail preview */}
-                  <div className="relative w-12 h-12 rounded-xl overflow-hidden shrink-0 border border-[#d6e3cf] shadow-2xs bg-[#eef4ea]">
-                    <img
-                      src={specimen.imageUrl}
-                      alt={specimen.name}
-                      referrerPolicy="no-referrer"
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                    />
-                    <span
-                      className={`absolute bottom-0.5 right-0.5 w-3 h-3 rounded-full border-2 border-white shadow-xs ${
-                        isCritical ? 'bg-[#ef4444]' : 'bg-[#f59e0b]'
-                      }`}
-                      title={isCritical ? 'Estado Crítico' : 'Estado de Atención'}
-                    />
-                  </div>
+                Humedad HVS
+              </button>
+              <button
+                type="button"
+                onClick={() => setChartMetric('ta')}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${
+                  chartMetric === 'ta'
+                    ? 'bg-white text-[#23361e] shadow-2xs'
+                    : 'text-[#5a7153]'
+                }`}
+              >
+                Temperatura TA
+              </button>
+            </div>
+          </div>
 
-                  <div className="flex-1 min-w-0">
-                    {/* Specimen Name + Badge */}
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-semibold text-[14.5px] text-[#22331d] truncate">
-                        {specimen.name}
+          <div className="bg-[#f8fbf6] rounded-xl border border-[#e3ede0] p-3">
+            <svg viewBox="0 0 320 118" className="w-full h-32 overflow-visible">
+              {/* Líneas guía horizontales */}
+              {[24, 52, 80].map((y) => (
+                <line
+                  key={y}
+                  x1="12"
+                  y1={y}
+                  x2="308"
+                  y2={y}
+                  stroke="#e4eee0"
+                  strokeDasharray="3 3"
+                  strokeWidth="1"
+                />
+              ))}
+
+              {/* Área rellena */}
+              {areaPath && <path d={areaPath} fill={chartData.fill} />}
+
+              {/* Línea trazada */}
+              {linePath && (
+                <path
+                  key={chartMetric}
+                  d={linePath}
+                  fill="none"
+                  stroke={chartData.stroke}
+                  strokeWidth="2.6"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="svg-draw"
+                />
+              )}
+
+              {/* Puntos e indicadores horarios */}
+              {svgCoords.map((pt, i) => (
+                <g key={CHART_HOURS[i]}>
+                  <circle
+                    cx={pt.x}
+                    cy={pt.y}
+                    r={i === svgCoords.length - 1 ? 4.5 : 2.8}
+                    fill="#ffffff"
+                    stroke={chartData.stroke}
+                    strokeWidth="2.2"
+                  />
+                  <text
+                    x={pt.x}
+                    y="113"
+                    textAnchor="middle"
+                    className="fill-[#647a5d] text-[8.5px] font-medium"
+                  >
+                    {CHART_HOURS[i]}
+                  </text>
+                </g>
+              ))}
+            </svg>
+
+            <div className="flex items-center justify-between text-[11px] text-[#4f6747] pt-1 border-t border-[#e5efe0] mt-1">
+              <span>
+                Promedio actual:{' '}
+                <strong>
+                  {chartMetric === 'hvs' ? `${stats.avgMoisture}% HVS` : `${stats.avgTemp}°C TA`}
+                </strong>
+              </span>
+              <span className="text-[10.5px] text-[#6d8266]">Sincronizado con {stats.total} plantas</span>
+            </div>
+          </div>
+        </section>
+
+        {/* Mapa Vivo de Sectores */}
+        <section className="lg:col-span-5 bg-white/90 rounded-2xl p-4 sm:p-5 border border-[#dce7d5] shadow-2xs space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="font-bold text-sm text-[#22331d]">Mapa Vivo de Sectores</h3>
+              <p className="text-[11px] text-[#607659]">
+                Distribución espacial de humedad y estado
+              </p>
+            </div>
+            <MapPin className="w-4 h-4 text-[#526b4a]" />
+          </div>
+
+          <div className="space-y-2 max-h-48 overflow-y-auto pr-0.5 custom-scrollbar">
+            {stats.sectors.map(([sectorName, items]) => {
+              const sectorMoisture = Math.round(
+                items.reduce((sum, x) => sum + x.soilMoisture, 0) / items.length
+              );
+              const hasCritical = items.some((x) => x.status === 'critical');
+              const hasAttention = items.some((x) => x.status === 'attention');
+              const dotClass = hasCritical
+                ? 'bg-rose-500'
+                : hasAttention
+                ? 'bg-amber-500'
+                : 'bg-emerald-500';
+
+              return (
+                <div
+                  key={sectorName}
+                  className="p-2.5 rounded-xl bg-[#f7faf5] border border-[#e2ecd9] space-y-2"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className={`w-2 h-2 rounded-full shrink-0 ${dotClass}`} />
+                      <span className="text-xs font-bold text-[#273a21] truncate">
+                        {sectorName}
                       </span>
-                      <span
-                        className={`text-[11px] font-semibold px-2 py-0.5 rounded-full tracking-tight ${
-                          isPhyto
-                            ? 'bg-[#fef3c7] text-[#b45309]'
-                            : 'bg-[#fee2e2] text-[#dc2626]'
-                        }`}
+                    </div>
+                    <span className="text-[10.5px] font-semibold text-[#546d4c] shrink-0">
+                      HVS {sectorMoisture}%
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {items.map((sp) => (
+                      <button
+                        key={sp.id}
+                        type="button"
+                        onClick={() => onSelectSpecimen(sp)}
+                        className="px-2 py-0.5 rounded-md bg-white border border-[#d7e5cf] text-[10.5px] font-medium text-[#354c2e] hover:border-[#6a8f5d] hover:bg-[#eef5ea] transition-colors cursor-pointer"
                       >
-                        {alert.label}
-                      </span>
-                    </div>
-
-                    {/* Reason text */}
-                    <p className="text-[12.5px] text-[#465b40] mt-1 leading-snug">
-                      {alert.reason}
-                    </p>
-
-                    {/* Numerical Stats footer */}
-                    <div className="flex items-center gap-4 mt-1.5 text-[11.5px] text-[#657a5e]">
-                      <span>
-                        Prioridad Riego: <strong className="font-bold text-[#23351d]">{alert.irrigationPriority}%</strong>
-                      </span>
-                      <span>
-                        Riesgo Fit.: <strong className="font-bold text-[#23351d]">{alert.phytosanitaryRisk}%</strong>
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Circular Chevron Action Button */}
-                  <div className="shrink-0 self-center pl-1">
-                    <div className="w-8 h-8 rounded-full bg-[#eef4ea] group-hover:bg-[#dce8d4] text-[#4a6341] flex items-center justify-center transition-colors">
-                      <ChevronRight className="w-4 h-4 stroke-[2.5]" />
-                    </div>
+                        {sp.name}
+                      </button>
+                    ))}
                   </div>
                 </div>
-              </div>
-            );
-          })
-        )}
+              );
+            })}
+          </div>
+        </section>
       </div>
 
-      {/* QUICK ACTION CARD: Registrar Nuevo Ejemplar */}
-      <div
-        id="quick-register-card"
-        className="relative overflow-hidden rounded-[24px] bg-[#e1ebd8] p-3.5 border border-[#d2dec9] flex items-center justify-between gap-3 shadow-xs mt-3"
+      {/* Tarjeta Luminosa Consejero Broti */}
+      <section
+        id="chatbot-entry-card"
+        className="rounded-3xl p-4 sm:p-5 bg-gradient-to-r from-[#f3f8ef] via-white to-[#eaf3e3] border border-[#cfe0c6] shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4"
       >
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="relative w-11 h-11 rounded-2xl overflow-hidden shrink-0 border border-[#c5d6bd] shadow-2xs">
-            <img
-              src="https://images.unsplash.com/photo-1538998073820-4dfa76300194?auto=format&fit=crop&w=400&q=80"
-              alt="Jardinería y Flores"
-              referrerPolicy="no-referrer"
-              className="w-full h-full object-cover"
-            />
+        <div className="flex items-center gap-3.5">
+          {/* Mini SVG Broti */}
+          <div className="w-14 h-14 rounded-2xl bg-white border border-[#d4e3cb] flex items-center justify-center shrink-0 shadow-2xs">
+            <svg viewBox="0 0 64 64" className="w-12 h-12 biobot-idle">
+              <line x1="32" y1="18" x2="32" y2="8" stroke="#5a7b4f" strokeWidth="2" strokeLinecap="round" />
+              <circle cx="32" cy="7" r="3" fill="#34d399" className="antenna-glow" />
+              <path d="M32 24 C24 22 18 16 17 11 C24 12 29 17 32 23 Z" fill="#6d9c5f" />
+              <path d="M32 23 C40 21 46 15 47 10 C40 11 35 16 32 22 Z" fill="#82b073" />
+              <rect x="17" y="25" width="30" height="6" rx="3" fill="#edf4e8" stroke="#bdd1b4" strokeWidth="1.5" />
+              <path d="M19 31 L45 31 L42 52 C41.5 55 39 57 36 57 L28 57 C25 57 22.5 55 22 52 Z" fill="#ffffff" stroke="#bdd1b4" strokeWidth="1.5" />
+              <rect x="23" y="34" width="18" height="11" rx="4" fill="#20321b" />
+              <circle cx="28" cy="39.5" r="1.7" fill="#4ade80" />
+              <circle cx="36" cy="39.5" r="1.7" fill="#4ade80" />
+            </svg>
           </div>
-          <div className="min-w-0">
-            <h4 className="text-[14px] font-bold text-[#20321b] leading-tight truncate">
-              Registrar Nuevo Ejemplar
-            </h4>
-            <p className="text-[11.5px] text-[#546b4c] leading-tight truncate">
-              Explorar especies del catálogo floral y arbóreo regional
+
+          <div className="space-y-0.5">
+            <div className="inline-flex items-center gap-1.5 text-[10.5px] font-bold uppercase tracking-wider text-[#4b6a42]">
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>Consejero Broti · SED Mamdani + ChromaDB</span>
+            </div>
+            <h3 className="font-botanical text-lg font-bold text-[#22331d]">
+              ¿Querés diagnosticar un síntoma o calcular riego?
+            </h3>
+            <p className="text-xs text-[#597053]">
+              {stats.activeAlerts[0]
+                ? `Sugerencia: Broti detectó alerta abierta en ${stats.activeAlerts[0].name}.`
+                : 'Consultá reglas difusas, especies nativas o probá variables en vivo.'}
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
-          <button
-            id="quick-add-specimen-icon-btn"
-            onClick={onOpenNewSpecimen}
-            className="w-9 h-9 rounded-xl bg-[#526a49] hover:bg-[#43573c] text-white flex items-center justify-center shadow-2xs transition-all active:scale-95 cursor-pointer"
-            title="Registrar nuevo ejemplar"
+        <button
+          type="button"
+          onClick={onOpenChatbot}
+          className="btn-shimmer shrink-0 px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#567a4a] to-[#446638] text-white text-xs font-bold shadow-sm hover:brightness-105 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer"
+        >
+          <Bot className="w-4 h-4" />
+          <span>Abrir Chatbot SED</span>
+          <ArrowRight className="w-3.5 h-3.5" />
+        </button>
+      </section>
+
+      {/* Alertas Activas con Acción Directa */}
+      <section className="bg-white/90 rounded-2xl p-4 sm:p-5 border border-[#dce7d5] shadow-2xs space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-600" />
+            <h3 className="font-bold text-sm text-[#22331d]">Alertas Activas</h3>
+          </div>
+          <span
+            id="alerts-count-badge"
+            className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
+              stats.activeAlerts.length > 0
+                ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+            }`}
           >
-            <Plus className="w-4.5 h-4.5 stroke-[2.5]" />
-          </button>
+            {stats.activeAlerts.length}{' '}
+            {stats.activeAlerts.length === 1 ? 'pendiente' : 'pendientes'}
+          </span>
+        </div>
+
+        <div id="alerts-list-container" className="space-y-2.5">
+          {stats.activeAlerts.length === 0 ? (
+            <div className="p-4 rounded-xl bg-[#f4faf1] border border-[#d9ebd1] flex items-center gap-3 text-xs text-[#315129]">
+              <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+              <span>
+                Excelente equilibrio: todas tus plantas operan dentro de parámetros fisiológicos óptimos.
+              </span>
+            </div>
+          ) : (
+            stats.activeAlerts.map((sp) => {
+              const inferredHydro = sp.irrigationPriority >= sp.phytosanitaryRisk;
+              const isHydroPriority = sp.activeAlert
+                ? sp.activeAlert.type === 'irrigation'
+                : inferredHydro;
+              const resolvedAlert: AlertInfo = sp.activeAlert || {
+                id: `synth-${sp.id}`,
+                specimenId: sp.id,
+                specimenName: sp.name,
+                type: isHydroPriority ? 'irrigation' : 'phytosanitary',
+                label: isHydroPriority ? 'Riego Requerido' : 'Revisión Fitosanitaria',
+                reason: `HVS ${sp.soilMoisture}% · TA ${sp.temperature}°C · HR ${sp.humidity}%`,
+                irrigationPriority: sp.irrigationPriority,
+                phytosanitaryRisk: sp.phytosanitaryRisk,
+                severity: sp.status === 'critical' ? 'critical' : 'attention',
+                ruleTriggered: isHydroPriority ? 'R-HVS' : 'R-FIT',
+              };
+              const severityScore = Math.max(
+                sp.irrigationPriority,
+                sp.phytosanitaryRisk
+              );
+              const alertTitle = resolvedAlert.label;
+              const alertMessage = resolvedAlert.reason;
+
+              return (
+                <div
+                  key={sp.id}
+                  className={`p-3.5 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-all ${
+                    sp.status === 'critical'
+                      ? 'bg-[#fff7f7] border-rose-200'
+                      : 'bg-[#fffcf4] border-amber-200'
+                  }`}
+                >
+                  <div className="flex items-start gap-3 min-w-0">
+                    <button
+                      type="button"
+                      onClick={() => onSelectSpecimen(sp)}
+                      className="w-12 h-12 rounded-xl overflow-hidden shrink-0 border border-[#dce7d5] cursor-pointer"
+                    >
+                      <img
+                        src={sp.imageUrl}
+                        alt={sp.name}
+                        className="w-full h-full object-cover"
+                      />
+                    </button>
+
+                    <div className="min-w-0 space-y-1 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <button
+                          type="button"
+                          onClick={() => onSelectSpecimen(sp)}
+                          className="font-bold text-xs sm:text-sm text-[#22331d] hover:underline cursor-pointer"
+                        >
+                          {sp.name}
+                        </button>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/90 border border-[#dce7d5] text-[#5c7255] font-semibold">
+                          {sp.location}
+                        </span>
+                      </div>
+
+                      <p className="text-xs font-semibold text-[#7a3f1d]">
+                        {alertTitle}
+                      </p>
+                      <p className="text-[11px] text-[#5e7158] leading-snug">
+                        {alertMessage}
+                      </p>
+
+                      {/* Barra de prioridad */}
+                      <div className="flex items-center gap-2 pt-0.5 max-w-xs">
+                        <div className="flex-1 h-1.5 bg-white/80 rounded-full overflow-hidden border border-[#e6eadf]">
+                          <div
+                            className={`h-full rounded-full ${
+                              severityScore >= 75
+                                ? 'bg-rose-500'
+                                : severityScore >= 50
+                                ? 'bg-amber-500'
+                                : 'bg-emerald-500'
+                            }`}
+                            style={{ width: `${Math.min(100, Math.max(15, severityScore))}%` }}
+                          />
+                        </div>
+                        <span className="text-[10px] font-bold text-[#4a5f43]">
+                          Prioridad {severityScore}%
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Acciones Directas 1-clic */}
+                  <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                    {isHydroPriority && onWaterSpecimen ? (
+                      <button
+                        type="button"
+                        onClick={() => onWaterSpecimen(sp.id)}
+                        className="btn-shimmer px-3 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold transition-all flex items-center gap-1.5 shadow-2xs cursor-pointer"
+                      >
+                        <Droplets className="w-3.5 h-3.5" />
+                        <span>Regar Ahora</span>
+                      </button>
+                    ) : (
+                      onResolvePhyto && (
+                        <button
+                          type="button"
+                          onClick={() => onResolvePhyto(sp.id)}
+                          className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold transition-all flex items-center gap-1.5 shadow-2xs cursor-pointer"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>Marcar Revisada</span>
+                        </button>
+                      )
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => onOpenAlert(resolvedAlert, sp)}
+                      className="px-3 py-1.5 rounded-xl bg-white hover:bg-[#f2f7ef] text-[#35512d] border border-[#cfdect] text-xs font-semibold transition-colors cursor-pointer"
+                    >
+                      Analizar
+                    </button>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </section>
+
+      {/* Tarjeta de Acceso Rápido a Catálogo y Registro */}
+      <section
+        id="quick-register-card"
+        className="rounded-2xl p-4 sm:p-5 bg-gradient-to-br from-[#f8fbf5] to-[#eef5e8] border border-[#d6e4ce] flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+      >
+        <div className="space-y-0.5">
+          <h3 className="font-bold text-sm text-[#22331d]">
+            Expandí tu Herbario Digital
+          </h3>
+          <p className="text-xs text-[#597053]">
+            Consultá las fichas botánicas en ChromaDB o incorporá un nuevo ejemplar al seguimiento.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
           <button
             id="btn-ver-catalogo"
+            type="button"
             onClick={onOpenCatalog}
-            className="bg-white hover:bg-[#f6f9f3] text-[#334a2c] text-[12px] font-semibold px-3.5 py-2 rounded-full border border-[#cad7c2] shadow-2xs transition-all active:scale-95 cursor-pointer"
+            className="px-3.5 py-2 rounded-xl bg-white hover:bg-[#f1f6ed] text-[#324d2a] border border-[#cfe0c7] text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer"
           >
-            Ver Catálogo
+            <BookOpen className="w-3.5 h-3.5" />
+            <span>Ver Catálogo</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={onOpenNewSpecimen}
+            className="btn-shimmer px-3.5 py-2 rounded-xl bg-[#526b4a] hover:bg-[#42593b] text-white text-xs font-semibold transition-all flex items-center gap-1.5 shadow-2xs cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Nuevo Ejemplar</span>
           </button>
         </div>
-      </div>
+      </section>
     </div>
   );
 };
