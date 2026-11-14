@@ -88,6 +88,10 @@ app.add_middleware(
 # Dependencia para autenticación y obtención del usuario actual
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security), db: Session = Depends(get_db)) -> Usuario:
     if not credentials:
+        # Modo invitado / testing académico: permite operar sin forzar login
+        guest_user = db.query(Usuario).first()
+        if guest_user:
+            return guest_user
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Credenciales de autenticación no proporcionadas o token ausente.",

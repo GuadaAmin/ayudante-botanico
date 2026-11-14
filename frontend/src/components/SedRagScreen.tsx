@@ -427,7 +427,7 @@ export const SedRagScreen: React.FC<SedRagScreenProps> = ({
       }
 
       let synthesizedAnswer = '';
-      if (response.respuesta_experta && (!customDocs.length || response.respuesta_experta.toLowerCase().includes(currentSp?.commonName.toLowerCase()))) {
+      if (response.respuesta_experta) {
         synthesizedAnswer = response.respuesta_experta;
       } else if (effectiveLit && effectiveLit.length > 0) {
         synthesizedAnswer = `Según los manuales botánicos de **${currentSp?.name || 'la especie'}** recuperados en la base de conocimiento:\n\n${effectiveLit.map((lit) => `• "${lit}"`).join('\n\n')}\n\n**Recomendación del Asesor:** Con Prioridad de Riego de ${currentSp?.irrigationPriority ?? 0}% y Riesgo Fitosanitario de ${currentSp?.phytosanitaryRisk ?? 0}%, se aconseja adaptar las tareas a las pautas de las reglas Mamdani y los requerimientos de la especie.`;
