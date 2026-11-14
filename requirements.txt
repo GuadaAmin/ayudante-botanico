@@ -6,6 +6,7 @@ numpy>=1.20.0
 scipy>=1.9.0
 networkx>=2.8.0
 scikit-fuzzy>=0.4.2
+packaging>=20.0
 bcrypt>=4.0.0
 pyjwt>=2.8.0
 python-dotenv>=1.0.0
